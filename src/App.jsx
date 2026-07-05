@@ -15,6 +15,17 @@ const mulberry32 = (a) => () => {
 
 // ---------- content ----------
 const CAL_KEY = "encoreRoadCalOffsetMs";
+const DIFF_KEY = "encoreRoadDifficulty";
+
+// Difficulty scales the whole feel: how many taps (densityMult), how far apart
+// they can bunch (minGap seconds), how forgiving the timing (hitWindowMult),
+// how punishing a miss is (missPenaltyMult), and the starting crowd cushion.
+const DIFFICULTY = {
+  easy:   { key: "easy",   label: "Easy",   blurb: "Fewer notes, spread out, forgiving.", densityMult: 0.62, minGap: 0.26,  hitWindowMult: 1.40, missPenaltyMult: 0.50, crowdStart: 72 },
+  normal: { key: "normal", label: "Normal", blurb: "A real challenge, still fair.",         densityMult: 0.85, minGap: 0.165, hitWindowMult: 1.15, missPenaltyMult: 0.75, crowdStart: 62 },
+  hard:   { key: "hard",   label: "Hard",   blurb: "Dense charts, tight timing.",           densityMult: 1.00, minGap: 0.10,  hitWindowMult: 1.00, missPenaltyMult: 1.00, crowdStart: 55 },
+};
+const DEFAULT_DIFF = "normal";
 
 // feel drives the drum/note pattern; root is the bass note cycle (Hz) per bar.
 // Notes: A2=110/2=55, C3=65.4, D3=73.4, E3=82.4, G2=49, F2=43.7, B2=61.7
@@ -163,8 +174,8 @@ function feelPattern(feel, s, bar, rng) {
       return { kick: s % 4 === 0, snare: s === 4 || s === 12, hat: s % 2 === 0 };
     case "halftime": // sparse, slow — snare on the 3, kick on 1 and a pickup
       return { kick: s === 0 || (s === 10 && rng() < 0.5), snare: s === 8, hat: s % 4 === 0 };
-    case "driving": // busy: kick doubles, extra ghost snare
-      return { kick: s % 4 === 0 || s === 6 || (s === 14 && rng() < 0.7), snare: s === 4 || s === 12, hat: true };
+    case "driving": // busy: kick doubles, extra ghost snare (hats on 8ths, not every step)
+      return { kick: s % 4 === 0 || s === 6 || (s === 14 && rng() < 0.7), snare: s === 4 || s === 12, hat: s % 2 === 0 };
     case "syncopated": // off-beat kicks, backbeat snare
       return { kick: s === 0 || s === 3 || s === 6 || s === 10, snare: s === 4 || s === 12, hat: s % 2 === 1 };
     default: // straight
@@ -172,21 +183,26 @@ function feelPattern(feel, s, bar, rng) {
   }
 }
 
-function buildChart(song, tier, seed) {
+function buildChart(song, tier, seed, mode) {
+  const md = mode || DIFFICULTY[DEFAULT_DIFF];
   const rng = mulberry32(seed);
   const spb = 60 / song.bpm;          // seconds per beat
   const step = spb / 4;               // 16th notes
   const bars = 16;
-  const density = Math.min(0.9, 0.3 + song.diff * 0.1 + tier * 0.05);
+  // base note-fill scaled by difficulty; minGap caps how fast taps can bunch up
+  const base = Math.min(0.72, 0.24 + song.diff * 0.075 + tier * 0.035);
+  const density = base * md.densityMult;
+  const minGap = md.minGap;
   const notes = [];   // {t, lane}
-  const audio = [];   // {t, inst, freq}
+  const audio = [];   // {t, inst, freq}  — always full, so music stays intact even when taps thin
   const bassLine = ROOTS[song.root] || ROOTS.Am;
-  // syncopated/driving feels put bass on off-beats; others on strong beats
   const bassSteps = (song.feel === "syncopated")
     ? [0, 3, 6, 8, 11, 14]
     : (song.feel === "halftime")
     ? [0, 8]
     : [0, 4, 8, 12, 6];
+
+  let lastStepT = -Infinity; // last step that placed a tap, for min-gap spacing
 
   for (let bar = 0; bar < bars; bar++) {
     const bt = bar * 16 * step;
@@ -195,26 +211,30 @@ function buildChart(song, tier, seed) {
       const p = feelPattern(song.feel, s, bar, rng);
       const isKick = p.kick, isSnare = p.snare, isHat = p.hat;
       const isBass = bassSteps.includes(s) && rng() < 0.82;
+      // audio plays regardless of whether we place a tappable note here
       if (isKick) audio.push({ t, inst: "kick" });
       if (isSnare) audio.push({ t, inst: "snare" });
       if (isHat) audio.push({ t, inst: "hat" });
       if (isBass) audio.push({ t, inst: "bass", freq: bassLine[bar % 4] * (s >= 8 ? 2 : 1) });
 
-      // map instrument hits to note lanes, thinned by density
+      // spacing: if too soon after the last tap-step, this step gets no notes
+      if (t - lastStepT < minGap) continue;
+
       const cand = [];
       if (isKick) cand.push(0);
       if (isSnare) cand.push(1);
-      if (isHat && rng() < density * 0.55) cand.push(2);
-      if (isBass && rng() < density * 0.7) cand.push(3);
+      if (isHat && rng() < density * 0.5) cand.push(2);
+      if (isBass && rng() < density * 0.65) cand.push(3);
       let placed = 0;
       for (const lane of cand) {
         if (placed >= 2) break;                      // max 2-note chords
         if (lane >= 2 && bar < 2) continue;          // gentle intro
-        if (rng() < (lane < 2 ? density + 0.25 : density)) {
+        if (rng() < (lane < 2 ? density + 0.18 : density)) {
           notes.push({ t, lane, hit: false, judged: null });
           placed++;
         }
       }
+      if (placed > 0) lastStepT = t;
     }
   }
   notes.sort((a, b) => a.t - b.t);
@@ -372,7 +392,7 @@ function Calibration({ onDone, onSkip }) {
 }
 
 /* ============================ GIG SCENE ============================ */
-function Gig({ song, tier, morale, calOffset, perkMods, seed, onDone }) {
+function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, onDone }) {
   const canvasRef = useRef(null);
   const stateRef = useRef(null);
   const padsRef = useRef(null);
@@ -380,10 +400,11 @@ function Gig({ song, tier, morale, calOffset, perkMods, seed, onDone }) {
   const [padDown, setPadDown] = useState([false, false, false, false]);
   const [flash, setFlash] = useState(null);
 
+  const md = diff || DIFFICULTY[DEFAULT_DIFF];
   const pm = perkMods || {};
   const effMorale = pm.moraleFloor ? Math.max(morale, pm.moraleFloor) : morale;
   const winScale = effMorale < 20 ? 0.75 : effMorale < 40 ? 0.85 : 1;
-  const hitMult = pm.hitWindowMult || 1;
+  const hitMult = (pm.hitWindowMult || 1) * md.hitWindowMult;
   const W_PERF = 0.055 * winScale * hitMult, W_GOOD = 0.125 * winScale * hitMult;
 
   // visually light a pad for a moment (used by both touch and keyboard)
@@ -426,14 +447,14 @@ function Gig({ song, tier, morale, calOffset, perkMods, seed, onDone }) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state !== "running") ctx.resume().catch(() => {});
     const synth = makeSynth(ctx);
-    const chart = buildChart(song, tier, seed);
+    const chart = buildChart(song, tier, seed, md);
     const t0 = ctx.currentTime + 3.2; // countdown
-    const startCrowd = Math.min(100, 60 + (pm.crowdStartBonus || 0));
+    const startCrowd = Math.min(100, md.crowdStart + (pm.crowdStartBonus || 0));
     const S = {
       ctx, synth, chart, t0, audioIdx: 0, started: false, finished: false,
       score: 0, combo: 0, maxCombo: 0, crowd: startCrowd, pts: 0, total: 0,
       pressFx: [-9, -9, -9, -9], judgeFx: null, deltas: [],
-      missDrainMult: pm.missDrainMult || 1, canRevive: !!pm.reviveOnce, revived: false,
+      missDrainMult: (pm.missDrainMult || 1) * md.missPenaltyMult, canRevive: !!pm.reviveOnce, revived: false,
     };
     stateRef.current = S;
 
@@ -652,7 +673,7 @@ function Gig({ song, tier, morale, calOffset, perkMods, seed, onDone }) {
       window.removeEventListener("resize", resize);
       ctx.close();
     };
-  }, [song, tier, seed, onDone, W_GOOD, calOffset, doHit, lightPad, pm]); // eslint-disable-line
+  }, [song, tier, seed, onDone, W_GOOD, calOffset, doHit, lightPad, pm, md]); // eslint-disable-line
 
   return (
     <div className="gig">
@@ -703,6 +724,16 @@ const loadCalOffsetMs = () => {
 export default function App() {
   const [seed] = useState(() => (Math.random() * 1e9) | 0);
   const [calOffsetMs, setCalOffsetMs] = useState(loadCalOffsetMs);
+  const [diffKey, setDiffKey] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_DIFF;
+    const saved = window.localStorage.getItem(DIFF_KEY);
+    return saved && DIFFICULTY[saved] ? saved : DEFAULT_DIFF;
+  });
+  const diff = DIFFICULTY[diffKey] || DIFFICULTY[DEFAULT_DIFF];
+  const setDifficulty = (k) => {
+    setDiffKey(k);
+    if (typeof window !== "undefined") window.localStorage.setItem(DIFF_KEY, k);
+  };
   // title | calibrate | map | plan | gig | result | end
   const [phase, setPhase] = useState(() => (loadCalOffsetMs() === null ? "calibrate" : "title"));
   const [stop, setStop] = useState(0);
@@ -833,6 +864,7 @@ export default function App() {
     const data = {
       exportedAt: new Date().toISOString(),
       calibrationOffsetMs: calOffsetMs,
+      difficulty: diffKey,
       device: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
       finalCash: cash, finalFans: fans,
       perks: ownedPerks,
@@ -859,6 +891,7 @@ export default function App() {
         </span>
       </span>
       <span className="stat dim">stop {Math.min(stop + 1, TOTAL_STOPS)}/{TOTAL_STOPS}</span>
+      <span className="stat dim">{diff.label}</span>
     </div>
   );
 
@@ -887,6 +920,21 @@ export default function App() {
           <h1 className="logo">ENCORE<br />ROAD</h1>
           <p className="lede">Route the tour. Structure the deals. Then walk on stage and earn it — every gig is a rhythm game.</p>
           <p className="hint">On desktop: keys D F J K. On mobile: tap the four lanes at the bottom.</p>
+
+          <div className="diff-pick">
+            <div className="sec-label" style={{ textAlign: "center", marginBottom: 8 }}>Difficulty</div>
+            <div className="diff-row">
+              {Object.values(DIFFICULTY).map((d) => (
+                <button key={d.key}
+                  className={"diff-btn" + (diffKey === d.key ? " sel" : "")}
+                  onClick={() => setDifficulty(d.key)}>
+                  <span className="diff-name">{d.label}</span>
+                  <span className="diff-blurb">{d.blurb}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button className="btn big" onClick={() => setPhase("map")}>Load the van →</button>
           <button className="relink" onClick={() => setPhase("calibrate")}>
             {calOffsetMs === 0 ? "Calibrate audio timing ▸" : `Recalibrate audio (currently ${calOffsetMs}ms) ▸`}
@@ -1026,6 +1074,7 @@ export default function App() {
           morale={applyMoraleFloor(Math.max(0, Math.min(100, morale + (plan.travel === "rest" ? (15 + (perkMods.moraleRestBonus||0)) : -(18 - (perkMods.moraleDriveReduction||0))))))}
           calOffset={(calOffsetMs || 0) / 1000}
           perkMods={perkMods}
+          diff={diff}
           seed={seed + stop * 977} onDone={onGigDone} />
       )}
 
@@ -1260,4 +1309,10 @@ const CSS = `
 .perk-owned { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; max-width: 520px; }
 .perk-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 10px; padding: 10px 12px; background: rgba(255,176,58,0.08); border: 1px solid rgba(255,176,58,0.22); border-radius: 10px; }
 .perk-tag { font-size: 12px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 20px; padding: 3px 10px; white-space: nowrap; }
+.diff-pick { width: 100%; max-width: 440px; margin-top: 6px; }
+.diff-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.diff-btn { display: flex; flex-direction: column; gap: 3px; align-items: center; text-align: center; padding: 12px 8px; border-radius: 11px; cursor: pointer; background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.14); color: inherit; font-family: inherit; transition: border-color .12s, background .12s; }
+.diff-btn.sel { border-color: #57E0E8; background: rgba(87,224,232,0.12); }
+.diff-name { font-family: 'Bungee', sans-serif; font-size: 14px; color: #F4EDE0; }
+.diff-blurb { font-size: 11px; color: #9a9086; line-height: 1.25; }
 `;

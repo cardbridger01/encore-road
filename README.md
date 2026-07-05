@@ -12,6 +12,13 @@ from another project on the same Render account: there's nothing here that
   (four-on-the-floor, halftime, driving, syncopated, straight) so charts don't
   feel same-y; 12 cities across 5 crowd archetypes. The setlist picker surfaces
   crowd-loved songs first, hated ones last.
+- **Difficulty modes (Easy / Normal / Hard),** chosen on the title screen and
+  remembered per browser. Difficulty controls how many notes you tap, how far
+  apart they're allowed to bunch (a hard cap on taps-per-second), how forgiving
+  the timing windows are, and how punishing a miss is. Concretely, the hardest
+  song runs ~2.5 taps/sec on Easy vs ~6 on Hard (the music itself always plays
+  in full — only the tappable notes thin out). Every song is completable on Easy.
+  The chart-density curve was also rebalanced down across the board.
 - **Tour perks (roguelite meta):** finishing a gig at **B or higher** offers 3
   random perk cards from a pool of 20. The one you pick applies for the rest of
   the tour and stacks with everything else you've taken; a chosen perk is removed
