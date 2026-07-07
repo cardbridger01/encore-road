@@ -31,7 +31,14 @@ from another project on the same Render account: there's nothing here that
   on-screen lane pads that support true multi-touch (two fingers register two
   lanes at once, and a finger sliding between pads re-triggers). The gig sizes to
   the device's real viewport height (`dvh`) so pads never get pushed off-screen,
-  and double-tap/pinch zoom is disabled during play.
+  and double-tap/pinch zoom is disabled during play. On phones, the song picker
+  is a **swipeable carousel** (swipe or use the ‹ › arrows; tap a card to pick it);
+  desktop keeps the full chip grid.
+- **Post-gig celebration splash:** each set ends on a results splash that counts
+  up the cash you earned, fires confetti for a B-or-better set (scaled by grade),
+  and shows an itemized **"where it came from"** breakdown — door take, the
+  performance-grade multiplier, and any perk bonuses — so the payout math is
+  legible instead of a single number.
 - **A/V calibration wizard** — runs on first launch (or from "Recalibrate audio" on
   the title screen). Taps along to a metronome, measures the player's timing
   offset, and applies it to hit judgment so scoring is fair across different

@@ -714,6 +714,138 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, onDone }) {
   );
 }
 
+/* ============================ CELEBRATION + UI HELPERS ============================ */
+// Confetti burst for a strong set (B+). Pure CSS-animated pieces, self-contained.
+function Confetti({ count = 80 }) {
+  const pieces = useRef(
+    [...Array(count)].map(() => ({
+      left: Math.random() * 100,
+      delay: Math.random() * 0.5,
+      dur: 2.2 + Math.random() * 1.6,
+      rot: Math.random() * 360,
+      color: ["#FF3D7F", "#FFB03A", "#57E0E8", "#B78CFF", "#8CFF9E"][(Math.random() * 5) | 0],
+      size: 7 + Math.random() * 7,
+      drift: (Math.random() * 2 - 1) * 80,
+    }))
+  ).current;
+  return (
+    <div className="confetti" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span key={i} className="confetti-piece" style={{
+          left: p.left + "%",
+          width: p.size, height: p.size * 1.4,
+          background: p.color,
+          animationDelay: p.delay + "s",
+          animationDuration: p.dur + "s",
+          "--rot": p.rot + "deg",
+          "--drift": p.drift + "px",
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// Animated count-up used for the payout number on the results splash.
+function CashCountUp({ to, prefix = "", duration = 900 }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let raf, start;
+    const tick = (ts) => {
+      if (!start) start = ts;
+      const t = Math.min(1, (ts - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      setN(Math.round(to * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [to, duration]);
+  return <span>{prefix}{n.toLocaleString()}</span>;
+}
+
+// Tracks whether the viewport is phone-width, for mobile-specific UI (song carousel).
+function useIsNarrow(bp = 620) {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(`(max-width:${bp}px)`).matches : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${bp}px)`);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [bp]);
+  return narrow;
+}
+
+// Swipeable song carousel for narrow screens: scroll-snap cards, prev/next
+// arrows, and a position readout. Tapping a card selects that song.
+function SongCarousel({ songs, selectedId, onSelect, arch }) {
+  const trackRef = useRef(null);
+  const [idx, setIdx] = useState(() => Math.max(0, songs.findIndex((s) => s.id === selectedId)));
+
+  // nearest card to the viewport center, computed live from the DOM
+  const currentIndex = () => {
+    const track = trackRef.current;
+    if (!track) return idx;
+    const center = track.getBoundingClientRect().left + track.clientWidth / 2;
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < track.children.length; i++) {
+      const cr = track.children[i].getBoundingClientRect();
+      const d = Math.abs(cr.left + cr.width / 2 - center);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  };
+
+  const centerCard = (i, smooth) => {
+    const track = trackRef.current;
+    if (!track) return;
+    const clamped = Math.max(0, Math.min(songs.length - 1, i));
+    const card = track.children[clamped];
+    if (card) card.scrollIntoView({ behavior: smooth ? "smooth" : "auto", inline: "center", block: "nearest" });
+  };
+
+  const go = (dir) => centerCard(currentIndex() + dir, true);
+
+  const onScroll = () => {
+    const i = currentIndex();
+    if (i !== idx) setIdx(i);
+  };
+
+  // center the initially-selected card once mounted (instant, so state matches)
+  useEffect(() => { centerCard(idx, false); }, []); // eslint-disable-line
+
+  return (
+    <div className="carousel-wrap">
+      <div className="carousel-top">
+        <button className="car-arrow" onClick={() => go(-1)} disabled={idx <= 0} aria-label="Previous song">‹</button>
+        <span className="car-count">{idx + 1} / {songs.length}</span>
+        <button className="car-arrow" onClick={() => go(1)} disabled={idx >= songs.length - 1} aria-label="Next song">›</button>
+      </div>
+      <div className="carousel" ref={trackRef} onScroll={onScroll}>
+        {songs.map((s) => {
+          const love = s.tag === arch.loves, hate = s.tag === arch.hates;
+          const sel = s.id === selectedId;
+          return (
+            <div key={s.id}
+              className={"song-slide" + (sel ? " sel" : "")}
+              onClick={() => onSelect(s)}>
+              <div className={"slide-badge " + (love ? "love" : hate ? "hate" : "neutral")}>
+                {love ? "♥ crowd loves this" : hate ? "✕ crowd dislikes this" : s.tag}
+              </div>
+              <div className="slide-name">{s.name}</div>
+              <div className="slide-meta">{s.tag} · {s.bpm} bpm</div>
+              <div className="slide-diff">{"◆".repeat(s.diff)}{"◇".repeat(4 - s.diff)}</div>
+              <div className="slide-blurb">{s.blurb}</div>
+              <div className={"slide-pick" + (sel ? " on" : "")}>{sel ? "✓ In tonight's set" : "Tap to pick"}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const loadCalOffsetMs = () => {
   if (typeof window === "undefined") return null;
   const saved = window.localStorage.getItem(CAL_KEY);
@@ -749,6 +881,7 @@ export default function App() {
   const [perkOffer, setPerkOffer] = useState([]);   // 3 ids currently offered
 
   const perkMods = React.useMemo(() => aggregatePerks(ownedPerks), [ownedPerks]);
+  const isNarrow = useIsNarrow();
 
   const rng = useRef(mulberry32(seed + 7));
 
@@ -782,7 +915,10 @@ export default function App() {
 
   const pickCity = (c) => {
     setCity(c);
-    setPlan({ deal: "door", promo: 0, song: SONGS[1], travel: "rest" });
+    const arch = ARCH[c.arch];
+    const aff = (s) => (s.tag === arch.loves ? 0 : s.tag === arch.hates ? 2 : 1);
+    const best = [...SONGS].sort((a, b) => aff(a) - aff(b) || a.diff - b.diff)[0];
+    setPlan({ deal: "door", promo: 0, song: best, travel: "rest" });
     setPhase("plan");
   };
 
@@ -810,23 +946,41 @@ export default function App() {
     if (phase !== "result" || !result || result.settled) return;
     const attend = projAttend(city, plan.promo, plan.song);
     const shownAttend = Math.round(attend * (0.75 + PERF[result.grade] * 0.25));
-    const guarantee = Math.round((city.draw * 3 + tier * 200) * (perkMods.guaranteeMult || 1));
-    const door = Math.round(shownAttend * ticket * 0.6 * PERF[result.grade] * (perkMods.doorMult || 1));
-    const revenue = plan.deal === "guarantee" ? guarantee : door;
     const highGrade = result.grade === "S" || result.grade === "A";
-    const newFans = Math.round(
-      shownAttend * CONV[result.grade] * (perkMods.fanConvMult || 1) * (highGrade ? (perkMods.highGradeFanBonus || 1) : 1)
-    ) + (perkMods.flatFansPerGig || 0);
+    const lines = []; // itemized contributions to the payout
+
+    let revenue;
+    if (plan.deal === "guarantee") {
+      const base = city.draw * 3 + tier * 200;
+      lines.push({ label: "Guaranteed fee", amount: Math.round(base) });
+      const gMult = perkMods.guaranteeMult || 1;
+      if (gMult !== 1) lines.push({ label: "Perk: bigger guarantee", amount: Math.round(base * (gMult - 1)) });
+      revenue = Math.round(base * gMult);
+    } else {
+      const gate = shownAttend * ticket * 0.6;      // door take before performance
+      const perf = PERF[result.grade];
+      const withPerf = gate * perf;
+      lines.push({ label: `Door: ${shownAttend} in @ ${fmt$(ticket)}`, amount: Math.round(gate) });
+      lines.push({ label: `Set grade ${result.grade} (×${perf})`, amount: Math.round(withPerf - gate) });
+      const dMult = perkMods.doorMult || 1;
+      if (dMult !== 1) lines.push({ label: "Perk: merch / door bonus", amount: Math.round(withPerf * (dMult - 1)) });
+      revenue = Math.round(withPerf * dMult);
+    }
+
+    // fans breakdown
+    const fanBase = Math.round(shownAttend * CONV[result.grade]);
+    const fanMult = (perkMods.fanConvMult || 1) * (highGrade ? (perkMods.highGradeFanBonus || 1) : 1);
+    const newFans = Math.round(fanBase * fanMult) + (perkMods.flatFansPerGig || 0);
+
     setCash((v) => v + revenue);
     setFans((v) => v + newFans);
-    setMorale((m) => applyMoraleFloor(Math.min(100, m + (result.grade === "S" || result.grade === "A" ? 8 : result.grade === "F" ? -12 : 0))));
+    setMorale((m) => applyMoraleFloor(Math.min(100, m + (highGrade ? 8 : result.grade === "F" ? -12 : 0))));
     setHistory((h) => [...h, {
       city: city.name, song: plan.song.name, grade: result.grade,
       acc: Math.round(result.acc * 100), revenue, newFans,
       deltaMeanMs: result.deltaMeanMs, deltaStdMs: result.deltaStdMs,
     }]);
-    setResult({ ...res_merge(result), settled: true, revenue, newFans, shownAttend });
-    function res_merge(r) { return r; }
+    setResult((r) => ({ ...r, settled: true, revenue, newFans, shownAttend, breakdown: lines }));
   }, [phase]); // eslint-disable-line
 
   // after viewing results: a B/A/S gig with perks still in the pool offers a perk
@@ -1002,19 +1156,28 @@ export default function App() {
 
             <div className="section">
               <div className="sec-label">Setlist — one song tonight ({SONGS.length} in your catalog)</div>
-              <div className="chips">
-                {sortedSongs.map((s) => {
-                  const m = s.tag === arch.loves ? "♥" : s.tag === arch.hates ? "✕" : "";
-                  return (
-                    <button key={s.id}
-                      className={"chip" + (plan.song.id === s.id ? " sel" : "")}
-                      onClick={() => setPlan({ ...plan, song: s })}>
-                      <b>{s.name}</b> {m && <span className={m === "♥" ? "love" : "hate"}>{m}</span>}
-                      <span className="chip-sub">{s.tag} · {s.bpm} bpm · {"◆".repeat(s.diff)}{"◇".repeat(4 - s.diff)}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {isNarrow ? (
+                <SongCarousel
+                  songs={sortedSongs}
+                  selectedId={plan.song.id}
+                  onSelect={(s) => setPlan({ ...plan, song: s })}
+                  arch={arch}
+                />
+              ) : (
+                <div className="chips">
+                  {sortedSongs.map((s) => {
+                    const m = s.tag === arch.loves ? "♥" : s.tag === arch.hates ? "✕" : "";
+                    return (
+                      <button key={s.id}
+                        className={"chip" + (plan.song.id === s.id ? " sel" : "")}
+                        onClick={() => setPlan({ ...plan, song: s })}>
+                        <b>{s.name}</b> {m && <span className={m === "♥" ? "love" : "hate"}>{m}</span>}
+                        <span className="chip-sub">{s.tag} · {s.bpm} bpm · {"◆".repeat(s.diff)}{"◇".repeat(4 - s.diff)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="section">
@@ -1078,28 +1241,62 @@ export default function App() {
           seed={seed + stop * 977} onDone={onGigDone} />
       )}
 
-      {phase === "result" && result?.settled && (
-        <div className="panel center">
-          <div className="kicker">{city.name} — set complete</div>
-          <div className={"grade g-" + result.grade}>{result.grade}</div>
-          {result.walked && <p className="warn">The crowd walked out. Brutal night.</p>}
-          <div className="res-grid">
-            <div><span className="dim">Accuracy</span><b>{Math.round(result.acc * 100)}%</b></div>
-            <div><span className="dim">Max combo</span><b>{result.maxCombo}×</b></div>
-            <div><span className="dim">Crowd</span><b>~{result.shownAttend}</b></div>
-            <div><span className="dim">Payout</span><b>{fmt$(result.revenue)}</b></div>
-            <div><span className="dim">New fans</span><b>+{result.newFans}</b></div>
+      {phase === "result" && result?.settled && (() => {
+        const g = result.grade;
+        const celebrate = ["S", "A", "B"].includes(g) && !result.walked;
+        const headline = result.walked ? "The crowd walked out"
+          : g === "S" ? "ENCORE! They won't forget this."
+          : g === "A" ? "Standing ovation!"
+          : g === "B" ? "Solid set — they had a good night."
+          : g === "C" ? "You got through it."
+          : "Rough night on stage.";
+        return (
+          <div className="panel center result-splash">
+            {celebrate && <Confetti count={g === "S" ? 110 : g === "A" ? 85 : 60} />}
+            <div className="kicker">{city.name} — set complete</div>
+            <div className={"grade g-" + g + (celebrate ? " pop" : "")}>{g}</div>
+            <h2 className="splash-headline">{headline}</h2>
+
+            <div className="payout-hero">
+              <span className="payout-label">You earned</span>
+              <span className="payout-cash"><CashCountUp to={result.revenue} prefix="$" /></span>
+              {result.newFans > 0 && <span className="payout-fans">+{result.newFans} new fans 💞</span>}
+            </div>
+
+            {result.breakdown?.length > 0 && (
+              <div className="breakdown">
+                <div className="sec-label">Where it came from</div>
+                {result.breakdown.map((ln, i) => (
+                  <div className={"bd-row" + (ln.amount < 0 ? " neg" : "")} key={i}>
+                    <span className="bd-label">{ln.label}</span>
+                    <span className="bd-amt">{ln.amount < 0 ? "−" : "+"}{fmt$(Math.abs(ln.amount))}</span>
+                  </div>
+                ))}
+                <div className="bd-row bd-total">
+                  <span className="bd-label">Payout</span>
+                  <span className="bd-amt">{fmt$(result.revenue)}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="res-mini">
+              <span>Grade <b>{g}</b></span>
+              <span>Accuracy <b>{Math.round(result.acc * 100)}%</b></span>
+              <span>Max combo <b>{result.maxCombo}×</b></span>
+              <span>Crowd <b>~{result.shownAttend}</b></span>
+            </div>
+
+            {["B", "A", "S"].includes(g) && ownedPerks.length < PERKS.length && cash >= 0 && (
+              <p className="perk-teaser">✦ Strong set — pick a tour perk next ✦</p>
+            )}
+            <button className="btn big" onClick={afterResult}>
+              {stop + 1 >= TOTAL_STOPS || cash < 0 ? "Wrap the tour →"
+                : ["B", "A", "S"].includes(g) && ownedPerks.length < PERKS.length ? "Choose a perk →"
+                : "Back in the van →"}
+            </button>
           </div>
-          {["B", "A", "S"].includes(result.grade) && ownedPerks.length < PERKS.length && cash >= 0 && (
-            <p className="perk-teaser">✦ Strong set — pick a tour perk next ✦</p>
-          )}
-          <button className="btn big" onClick={afterResult}>
-            {stop + 1 >= TOTAL_STOPS || cash < 0 ? "Wrap the tour →"
-              : ["B", "A", "S"].includes(result.grade) && ownedPerks.length < PERKS.length ? "Choose a perk →"
-              : "Back in the van →"}
-          </button>
-        </div>
-      )}
+        );
+      })()}
 
       {phase === "perks" && (
         <div className="panel center">
@@ -1315,4 +1512,57 @@ const CSS = `
 .diff-btn.sel { border-color: #57E0E8; background: rgba(87,224,232,0.12); }
 .diff-name { font-family: 'Bungee', sans-serif; font-size: 14px; color: #F4EDE0; }
 .diff-blurb { font-size: 11px; color: #9a9086; line-height: 1.25; }
+
+/* ---- celebration splash ---- */
+.result-splash { position: relative; overflow: hidden; }
+.grade.pop { animation: gradePop 0.6s cubic-bezier(.2,1.4,.4,1) both; }
+@keyframes gradePop { 0% { transform: scale(0.3); opacity: 0; } 60% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
+.splash-headline { font-size: 20px; text-align: center; margin: 2px 0 6px; color: #F4EDE0; }
+.payout-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 8px 0 14px; }
+.payout-label { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #9a9086; }
+.payout-cash { font-family: 'Bungee', sans-serif; font-size: 46px; line-height: 1; color: #8CFF9E; text-shadow: 0 0 24px rgba(140,255,158,0.35); }
+.payout-fans { font-size: 14px; color: #FF9ec4; margin-top: 4px; }
+.breakdown { width: 100%; max-width: 380px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px 14px; }
+.bd-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 5px 0; font-size: 13.5px; }
+.bd-label { color: #cfc6b8; text-align: left; }
+.bd-amt { font-variant-numeric: tabular-nums; color: #8CFF9E; white-space: nowrap; font-weight: 600; }
+.bd-row.neg .bd-amt { color: #ff9a9a; }
+.bd-row.bd-total { border-top: 1px solid rgba(255,255,255,0.12); margin-top: 4px; padding-top: 9px; font-family: 'Bungee', sans-serif; font-size: 14px; }
+.bd-row.bd-total .bd-label { color: #F4EDE0; }
+.bd-row.bd-total .bd-amt { color: #F4EDE0; }
+.res-mini { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; margin: 14px 0 6px; font-size: 13px; color: #9a9086; }
+.res-mini b { color: #F4EDE0; }
+.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+.confetti-piece { position: absolute; top: -20px; border-radius: 2px; opacity: 0.95; animation-name: confettiFall; animation-timing-function: linear; animation-iteration-count: 1; }
+@keyframes confettiFall {
+  0% { transform: translateY(-20px) translateX(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(115vh) translateX(var(--drift)) rotate(calc(var(--rot) * 4)); opacity: 0.9; }
+}
+
+/* ---- mobile song carousel ---- */
+.carousel-wrap { width: 100%; }
+.carousel-top { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 8px; }
+.car-arrow { width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: #F4EDE0; font-size: 24px; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.car-arrow:disabled { opacity: 0.3; }
+.car-count { font-size: 13px; color: #9a9086; font-variant-numeric: tabular-nums; min-width: 54px; text-align: center; }
+.carousel { position: relative; display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding: 4px 2px 10px; }
+.carousel::-webkit-scrollbar { display: none; }
+.song-slide {
+  scroll-snap-align: center; flex: 0 0 82%; max-width: 320px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
+  padding: 18px 16px; border-radius: 16px; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.12);
+  transition: border-color .15s, background .15s;
+}
+.song-slide.sel { border-color: #FF3D7F; background: rgba(255,61,127,0.10); }
+.slide-badge { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 10px; border-radius: 20px; }
+.slide-badge.love { background: rgba(140,255,158,0.15); color: #8CFF9E; }
+.slide-badge.hate { background: rgba(255,120,120,0.15); color: #ff9a9a; }
+.slide-badge.neutral { background: rgba(255,255,255,0.08); color: #cfc6b8; }
+.slide-name { font-family: 'Bungee', sans-serif; font-size: 20px; color: #F4EDE0; line-height: 1.1; }
+.slide-meta { font-size: 13px; color: #9a9086; }
+.slide-diff { color: #FFB03A; font-size: 15px; letter-spacing: 2px; }
+.slide-blurb { font-size: 13px; color: #cfc6b8; min-height: 34px; }
+.slide-pick { margin-top: 4px; font-size: 13px; font-weight: 700; color: #9a9086; }
+.slide-pick.on { color: #FF3D7F; }
 `;
