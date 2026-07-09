@@ -846,6 +846,216 @@ function SongCarousel({ songs, selectedId, onSelect, arch }) {
   );
 }
 
+/* ============================ TRAVEL: pixel van + road events ============================ */
+const PX = {
+  skyTop: "#1c1330", skyMid: "#3d2352", glow: "#ff6b9d", moon: "#ffe9a8",
+  star: "#fff2c0", hillFar: "#2b1c40", hillNear: "#1d1330",
+  road: "#14101c", roadEdge: "#2a2438", dash: "#f4ede0",
+  van: "#ff3d7f", vanDk: "#b3164f", vanLt: "#ff8fb5", glass: "#8fe6ff",
+  tire: "#0c0c11", hub: "#57e0e8", light: "#ffd36b", tail: "#ff5a5a", stripe: "#57e0e8",
+  pole: "#2a2438", sign: "#ffb03a", town: "#332452", neon1: "#57e0e8", neon2: "#ffb03a", rain: "#8fb7ff",
+};
+const rect = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.ceil(w), Math.ceil(h)); };
+
+function drawWheel(g, wx, wy, s, spin) {
+  rect(g, wx, wy, 4 * s, 4 * s, PX.tire);
+  rect(g, wx + s, wy + s, 2 * s, 2 * s, PX.hub);
+  if (Math.floor(spin) % 2 === 0) rect(g, wx + 1.4 * s, wy, s * 1.2, 4 * s, "#0a0a0f");
+  else rect(g, wx, wy + 1.4 * s, 4 * s, s * 1.2, "#0a0a0f");
+}
+// van anchored by top-left of body; wheels sit 11*s below top. faces right.
+function drawVan(g, x, y, s, t, tilt = 0) {
+  rect(g, x - s, y + 11 * s + tilt, 22 * s, s, "rgba(0,0,0,0.35)");
+  drawWheel(g, x + 2 * s, y + 7 * s + (tilt ? tilt : 0), s, t * 8);
+  drawWheel(g, x + 14 * s, y + 7 * s, s, t * 8);
+  rect(g, x, y + tilt, 20 * s, 7 * s, PX.van);
+  rect(g, x, y + 6 * s + tilt, 20 * s, s, PX.vanDk);
+  rect(g, x, y + tilt, 20 * s, s, PX.vanLt);
+  rect(g, x + 11 * s, y - 4 * s + tilt, 9 * s, 5 * s, PX.van);   // cab
+  rect(g, x + 12 * s, y - 3 * s + tilt, 6 * s, 3 * s, PX.glass); // windshield
+  rect(g, x, y + 3 * s + tilt, 20 * s, s, PX.stripe);           // side stripe
+  rect(g, x + 19 * s, y + 2 * s + tilt, s, 3 * s, PX.light);    // headlight
+  rect(g, x, y + 2 * s + tilt, s, 3 * s, PX.tail);              // taillight
+}
+
+// ---- static event vignettes (drawn on the same canvas when an event fires) ----
+function bgNight(g, W, H, t) {
+  rect(g, 0, 0, W, H, PX.skyTop);
+  rect(g, 0, H * 0.28, W, H * 0.4, PX.skyMid);
+  // stars
+  for (let i = 0; i < 26; i++) {
+    const sx = (i * 53) % W, sy = (i * 29) % (H * 0.45);
+    if ((Math.floor(t * 2) + i) % 5 !== 0) rect(g, sx, sy, 2, 2, PX.star);
+  }
+  rect(g, W - 34, 16, 14, 14, PX.moon);
+  rect(g, W - 30, 12, 8, 4, PX.moon); rect(g, W - 38, 24, 4, 8, PX.moon);
+}
+function ground(g, W, H) {
+  rect(g, 0, H - 34, W, 34, PX.road);
+  rect(g, 0, H - 34, W, 2, PX.roadEdge);
+}
+const SCENES = {
+  flat(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
+    drawVan(g, 90, H - 34 - 33 + 6, 3, 0.2, 6); // tilted (flat)
+    rect(g, 96, H - 40, 12, 6, "#0c0c11"); // flat tire heap
+    rect(g, 150, H - 52, 3, 10, "#cfc6b8"); rect(g, 149, H - 54, 5, 3, "#cfc6b8"); }, // jack
+  food(g, W, H, t) { bgNight(g, W, H, t);
+    rect(g, 20, H - 78, 70, 44, "#2a2438"); rect(g, 24, H - 74, 62, 22, "#3d2352"); // diner
+    rect(g, 30, H - 92, 50, 12, PX.neon2); rect(g, 34, H - 89, 8, 6, "#1c1330"); rect(g, 46, H - 89, 8, 6, "#1c1330");
+    ground(g, W, H); drawVan(g, 120, H - 34 - 33, 3, t); },
+  crowd(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
+    drawVan(g, 70, H - 34 - 33, 3, t);
+    for (let i = 0; i < 6; i++) { const px = 140 + i * 14, bob = Math.sin(t * 4 + i) * 2;
+      rect(g, px, H - 46 + bob, 6, 10, i % 2 ? PX.neon1 : PX.neon2); rect(g, px + 1, H - 50 + bob, 4, 4, "#ffd9b8"); } },
+  cop(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
+    drawVan(g, 120, H - 34 - 33, 3, t);
+    rect(g, 30, H - 46, 40, 14, "#20304a"); rect(g, 36, H - 52, 26, 8, "#20304a"); // cruiser
+    const f = Math.floor(t * 6) % 2; rect(g, 34, H - 56, 8, 5, f ? PX.tail : PX.neon1); rect(g, 52, H - 56, 8, 5, f ? PX.neon1 : PX.tail);
+    rect(g, 34, H - 34, 10, 10, PX.tire); rect(g, 56, H - 34, 10, 10, PX.tire); },
+  scenic(g, W, H, t) { bgNight(g, W, H, t);
+    for (let x = 0; x < W; x += 4) { const hh = 70 + Math.sin(x * 0.05) * 10; rect(g, x, hh, 4, H - hh - 34, PX.hillNear); }
+    ground(g, W, H); drawVan(g, 96, H - 34 - 33, 3, t);
+    rect(g, 150, 40, 2, 2, PX.star); rect(g, 170, 54, 2, 2, PX.star); },
+  engine(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
+    drawVan(g, 96, H - 34 - 33, 3, t * 0.2);
+    for (let i = 0; i < 5; i++) { const sy = H - 70 - i * 8 - Math.sin(t * 3 + i) * 3; rect(g, 150 + Math.sin(t * 2 + i) * 6, sy, 6 + i, 6 + i, "rgba(180,180,190,0.5)"); } },
+  cash(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
+    drawVan(g, 96, H - 34 - 33, 3, t);
+    for (let i = 0; i < 7; i++) { const cy = 30 + ((t * 30 + i * 18) % 80), cx = 60 + i * 20; rect(g, cx, cy, 6, 6, PX.neon2); rect(g, cx + 2, cy + 1, 2, 4, "#7a5200"); } },
+  storm(g, W, H, t) { rect(g, 0, 0, W, H, "#161022"); rect(g, 0, 0, W, H * 0.5, "#241830"); ground(g, W, H);
+    drawVan(g, 96, H - 34 - 33, 3, t);
+    for (let i = 0; i < 40; i++) { const rx = (i * 37 + t * 240) % W, ry = (i * 53 + t * 300) % H; rect(g, rx, ry, 1, 6, PX.rain); } },
+};
+
+const EVENTS = [
+  { id: "flat",    scene: "flat",   kind: "bad",  title: "Blowout on the Interstate", desc: "A tire lets go at 70mph. You limp to a shop and hand over the cash.", effect: { cash: -70 } },
+  { id: "diner",   scene: "food",   kind: "mix",  title: "All-Night Diner", desc: "Pancakes at 2am. Glorious — but the bathroom line eats the lead you had.", effect: { cash: -15, morale: 6 } },
+  { id: "radio",   scene: "crowd",  kind: "good", title: "Local Radio Spot", desc: "A college DJ spins your single on the overnight show. New ears tune in.", effect: { fans: 18 } },
+  { id: "speed",   scene: "cop",    kind: "bad",  title: "Speed Trap", desc: "Lights in the mirror outside some small town. The ticket stings.", effect: { cash: -55 } },
+  { id: "overlook",scene: "scenic", kind: "good", title: "Scenic Overlook", desc: "You pull over at a canyon rim at dawn. Nobody speaks. Everybody breathes.", effect: { morale: 8 } },
+  { id: "engine",  scene: "engine", kind: "bad",  title: "Engine Trouble", desc: "Steam from under the hood. A roadside mechanic fixes it and bleeds you dry.", effect: { cash: -90, morale: -4 } },
+  { id: "viral",   scene: "crowd",  kind: "good", title: "The Clip Goes Viral", desc: "Someone filmed last night's encore. By sunrise it's everywhere.", effect: { fans: 26 } },
+  { id: "lot",     scene: "crowd",  kind: "good", title: "Parking-Lot Set", desc: "You busk in a gas-station lot for gas money. A small crowd, a big lift.", effect: { fans: 12, morale: 4 } },
+  { id: "sushi",   scene: "food",   kind: "bad",  title: "Gas-Station Sushi", desc: "It seemed fine at the time. Regret sets in around mile 40.", effect: { morale: -8 } },
+  { id: "tips",    scene: "cash",   kind: "good", title: "Fuller Than You Thought", desc: "The tip jar had way more than you counted last night. Gas is on the band.", effect: { cash: 65 } },
+  { id: "storm",   scene: "storm",  kind: "bad",  title: "Thunderstorm", desc: "White-knuckle driving through a downpour. Everyone arrives frayed.", effect: { morale: -5 } },
+  { id: "roadie",  scene: "scenic", kind: "good", title: "Hitchhiking Roadie", desc: "You pick up a fan who knows how to coil cables and read a room. Good energy.", effect: { morale: 5 } },
+];
+
+function rollEvent() {
+  if (Math.random() < 0.4) return null;           // ~60% of drives have an event
+  return EVENTS[(Math.random() * EVENTS.length) | 0];
+}
+
+// tiny pixel-van SVG used as the moving marker on the route ribbon
+function VanIcon() {
+  return (
+    <svg viewBox="0 0 22 16" width="26" height="19" shapeRendering="crispEdges" aria-hidden="true">
+      <rect x="0" y="5" width="20" height="7" fill="#ff3d7f" />
+      <rect x="11" y="1" width="9" height="5" fill="#ff3d7f" />
+      <rect x="12" y="2" width="6" height="3" fill="#8fe6ff" />
+      <rect x="0" y="8" width="20" height="1" fill="#57e0e8" />
+      <rect x="2" y="11" width="4" height="4" fill="#0c0c11" />
+      <rect x="14" y="11" width="4" height="4" fill="#0c0c11" />
+      <rect x="19" y="7" width="1" height="2" fill="#ffd36b" />
+    </svg>
+  );
+}
+
+function TravelScene({ fromLabel, toLabel, event, onDone }) {
+  const canvasRef = useRef(null);
+  const fillRef = useRef(null);
+  const vanRef = useRef(null);
+  const [revealed, setRevealed] = useState(false);
+  const DUR = 2.8;
+
+  useEffect(() => {
+    const cv = canvasRef.current;
+    const g = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+    let raf, start, done = false;
+
+    const drive = (t, progress) => {
+      bgNight(g, W, H, t);
+      // parallax hills
+      const off = t * 10;
+      for (let x = 0; x < W; x += 4) { const hh = 84 + Math.sin((x + off) * 0.04) * 5; rect(g, x, hh, 4, H - hh - 34, PX.hillFar); }
+      for (let x = 0; x < W; x += 4) { const hh = 92 + Math.sin((x + off * 1.7) * 0.05) * 4; rect(g, x, hh, 4, H - hh - 34, PX.hillNear); }
+      ground(g, W, H);
+      // roadside poles (fast parallax)
+      for (let i = 0; i < 6; i++) {
+        const px = (i * 70 - (t * 80) % 70 + W) % (W + 70) - 20;
+        rect(g, px, H - 66, 3, 22, PX.pole); rect(g, px - 3, H - 66, 12, 6, PX.sign);
+      }
+      // center dashes
+      for (let i = 0; i < 10; i++) { const dx = (i * 32 - (t * 150) % 32 + W) % (W + 32) - 16; rect(g, dx, H - 16, 14, 3, PX.dash); }
+      // van bobbing
+      const bob = Math.sin(t * 11) * 2;
+      drawVan(g, 92, H - 34 - 33 + bob, 3, t);
+      // headlight beam
+      g.fillStyle = "rgba(255,211,107,0.12)"; g.beginPath(); g.moveTo(155, H - 40 + bob); g.lineTo(200, H - 52); g.lineTo(200, H - 30); g.closePath(); g.fill();
+    };
+
+    const loop = (ts) => {
+      if (!start) start = ts;
+      const t = (ts - start) / 1000;
+      const progress = Math.min(1, t / DUR);
+      if (fillRef.current) fillRef.current.style.width = (progress * 100) + "%";
+      if (vanRef.current) vanRef.current.style.left = (progress * 100) + "%";
+      if (!done && progress < 1) {
+        drive(t, progress);
+        raf = requestAnimationFrame(loop);
+      } else if (!done) {
+        done = true;
+        if (event) { const draw = () => { SCENES[event.scene](g, W, H, (performance.now() - start) / 1000); raf = requestAnimationFrame(draw); }; draw(); }
+        else { const draw = () => { drive((performance.now() - start) / 1000, 1); raf = requestAnimationFrame(draw); }; draw(); }
+        setRevealed(true);
+      }
+    };
+    raf = requestAnimationFrame(loop);
+
+    const skip = () => { if (!done) start = performance.now() - DUR * 1000; };
+    cv.addEventListener("pointerdown", skip);
+    return () => { cancelAnimationFrame(raf); cv.removeEventListener("pointerdown", skip); };
+  }, [event]);
+
+  const fx = event?.effect || {};
+  return (
+    <div className="panel center travel">
+      <div className="kicker">{revealed && event ? "On the road…" : "On the road"}</div>
+      <div className="route-ribbon">
+        <span className="route-end">{fromLabel}</span>
+        <div className="route-line">
+          <div className="route-fill" ref={fillRef} />
+          <div className="route-van" ref={vanRef}><VanIcon /></div>
+        </div>
+        <span className="route-end next">{toLabel}</span>
+      </div>
+      <canvas ref={canvasRef} width={240} height={150} className="travel-canvas" />
+
+      {!revealed && <p className="hint">Driving to the next stop… (tap to hurry)</p>}
+
+      {revealed && event && (
+        <div className="event-card">
+          <div className={"event-kind k-" + event.kind}>{event.kind === "good" ? "GOOD FORTUNE" : event.kind === "bad" ? "TROUBLE" : "A DETOUR"}</div>
+          <h3 className="event-title">{event.title}</h3>
+          <p className="event-desc">{event.desc}</p>
+          <div className="event-fx">
+            {fx.cash != null && <span className={"fx " + (fx.cash < 0 ? "neg" : "pos")}>{fx.cash < 0 ? "−" : "+"}{fmt$(Math.abs(fx.cash))}</span>}
+            {fx.fans != null && <span className={"fx " + (fx.fans < 0 ? "neg" : "pos")}>{fx.fans < 0 ? "−" : "+"}{Math.abs(fx.fans)} fans</span>}
+            {fx.morale != null && <span className={"fx " + (fx.morale < 0 ? "neg" : "pos")}>{fx.morale < 0 ? "−" : "+"}{Math.abs(fx.morale)} morale</span>}
+          </div>
+          <button className="btn big" onClick={() => onDone(event)}>Continue →</button>
+        </div>
+      )}
+
+      {revealed && !event && (
+        <button className="btn big" onClick={() => onDone(null)}>Roll into town →</button>
+      )}
+    </div>
+  );
+}
+
 const loadCalOffsetMs = () => {
   if (typeof window === "undefined") return null;
   const saved = window.localStorage.getItem(CAL_KEY);
@@ -879,6 +1089,8 @@ export default function App() {
   const [feedback, setFeedback] = useState({ rating: 0, notes: "" });
   const [ownedPerks, setOwnedPerks] = useState([]); // perk ids, reset each tour
   const [perkOffer, setPerkOffer] = useState([]);   // 3 ids currently offered
+  const [travelEvent, setTravelEvent] = useState(null); // event rolled for current drive
+  const [eventsSeen, setEventsSeen] = useState([]);      // ids of road events encountered
 
   const perkMods = React.useMemo(() => aggregatePerks(ownedPerks), [ownedPerks]);
   const isNarrow = useIsNarrow();
@@ -998,8 +1210,23 @@ export default function App() {
 
   const advanceStop = () => {
     if (cash < 0) { setPhase("end"); return; }
-    if (stop + 1 >= TOTAL_STOPS) setPhase("end");
-    else { setStop((s) => s + 1); setPhase("map"); }
+    if (stop + 1 >= TOTAL_STOPS) { setPhase("end"); return; }
+    setStop((s) => s + 1);
+    setTravelEvent(rollEvent());   // may be null (uneventful drive)
+    setPhase("travel");
+  };
+
+  // called when the travel screen finishes; applies the one-time road event
+  const finishTravel = (ev) => {
+    if (ev) {
+      const e = ev.effect || {};
+      if (e.cash) setCash((v) => v + e.cash);
+      if (e.fans) setFans((v) => Math.max(0, v + e.fans));
+      if (e.morale) setMorale((m) => applyMoraleFloor(Math.max(0, Math.min(100, m + e.morale))));
+      setEventsSeen((s) => [...s, ev.id]);
+    }
+    setTravelEvent(null);
+    setPhase("map");
   };
 
   const choosePerk = (id) => {
@@ -1011,7 +1238,8 @@ export default function App() {
   const restart = () => {
     setStop(0); setCash(600); setFans(120); setMorale(80);
     setHistory([]); setResult(null); setFeedback({ rating: 0, notes: "" });
-    setOwnedPerks([]); setPerkOffer([]); setPhase("map");
+    setOwnedPerks([]); setPerkOffer([]); setEventsSeen([]); setTravelEvent(null);
+    setPhase("map");
   };
 
   const exportPlaytestData = () => {
@@ -1022,6 +1250,7 @@ export default function App() {
       device: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
       finalCash: cash, finalFans: fans,
       perks: ownedPerks,
+      roadEvents: eventsSeen,
       runs: history,
       feedback,
     };
@@ -1094,6 +1323,15 @@ export default function App() {
             {calOffsetMs === 0 ? "Calibrate audio timing ▸" : `Recalibrate audio (currently ${calOffsetMs}ms) ▸`}
           </button>
         </div>
+      )}
+
+      {phase === "travel" && (
+        <TravelScene
+          fromLabel={history.length ? history[history.length - 1].city : "Home"}
+          toLabel={`Stop ${Math.min(stop + 1, TOTAL_STOPS)}`}
+          event={travelEvent}
+          onDone={finishTravel}
+        />
       )}
 
       {phase === "map" && (
@@ -1565,4 +1803,24 @@ const CSS = `
 .slide-blurb { font-size: 13px; color: #cfc6b8; min-height: 34px; }
 .slide-pick { margin-top: 4px; font-size: 13px; font-weight: 700; color: #9a9086; }
 .slide-pick.on { color: #FF3D7F; }
+
+/* ---- travel / road-event screen ---- */
+.travel { gap: 4px; }
+.travel-canvas { width: 100%; max-width: 440px; image-rendering: pixelated; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: #14101c; touch-action: none; }
+.route-ribbon { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 440px; margin: 6px 0 10px; }
+.route-end { font-size: 11px; color: #9a9086; white-space: nowrap; max-width: 84px; overflow: hidden; text-overflow: ellipsis; }
+.route-end.next { color: #57E0E8; text-align: right; }
+.route-line { position: relative; flex: 1; height: 4px; border-radius: 3px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.22) 0 5px, transparent 5px 10px); }
+.route-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; background: #FF3D7F; }
+.route-van { position: absolute; top: 50%; transform: translate(-50%, -60%); transition: left 0.05s linear; }
+.event-card { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; width: 100%; max-width: 440px; margin-top: 8px; }
+.event-kind { font-family: 'Bungee', sans-serif; font-size: 12px; letter-spacing: 0.1em; padding: 3px 12px; border-radius: 20px; }
+.event-kind.k-good { background: rgba(140,255,158,0.15); color: #8CFF9E; }
+.event-kind.k-bad { background: rgba(255,120,120,0.15); color: #ff9a9a; }
+.event-kind.k-mix { background: rgba(255,176,58,0.15); color: #FFB03A; }
+.event-title { font-size: 20px; color: #F4EDE0; margin: 2px 0; }
+.event-desc { font-size: 14px; color: #cfc6b8; line-height: 1.45; max-width: 400px; }
+.event-fx { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 6px 0 4px; }
+.event-fx .fx { font-family: 'Bungee', sans-serif; font-size: 14px; padding: 4px 12px; border-radius: 10px; background: rgba(255,255,255,0.06); }
+.event-fx .fx.pos { color: #8CFF9E; } .event-fx .fx.neg { color: #ff9a9a; }
 `;

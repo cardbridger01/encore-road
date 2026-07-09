@@ -39,6 +39,14 @@ from another project on the same Render account: there's nothing here that
   and shows an itemized **"where it came from"** breakdown — door take, the
   performance-grade multiplier, and any perk bonuses — so the payout math is
   legible instead of a single number.
+- **Travel interstitial + road events:** between stops, a GBA-style pixel-art
+  screen shows your van driving a neon highway (parallax scenery, bobbing van,
+  spinning wheels) with a route ribbon tracking progress to the next stop. About
+  60% of drives trigger an **Oregon-Trail-style road event** — a blowout, a speed
+  trap, a viral clip, a scenic overlook, gas-station sushi — each drawn as its own
+  pixel vignette with a **one-time** effect on cash/fans/morale (distinct from the
+  persistent perks). Tap the scene to hurry the drive. Events encountered are
+  recorded in the playtest export.
 - **A/V calibration wizard** — runs on first launch (or from "Recalibrate audio" on
   the title screen). Taps along to a metronome, measures the player's timing
   offset, and applies it to hit judgment so scoring is fair across different
