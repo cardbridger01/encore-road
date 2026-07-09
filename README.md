@@ -39,6 +39,14 @@ from another project on the same Render account: there's nothing here that
   and shows an itemized **"where it came from"** breakdown — door take, the
   performance-grade multiplier, and any perk bonuses — so the payout math is
   legible instead of a single number.
+- **Arcade leaderboard:** finishing a tour computes a score (cash + fans, times a
+  multiplier from your average gig grade, so a rich-but-sloppy run can't beat a
+  great one). Cracking the top 10 for that difficulty triggers an old-school
+  **initials entry** (three ▲/▼ letter reels). Separate boards for Easy / Normal /
+  Hard, viewable from the title screen or the end screen. Scores persist in
+  `localStorage` — **per browser, not global**, since this ships as a static site
+  with no backend. Swapping to a real shared leaderboard later means replacing
+  `loadBoards`/`saveBoards` with API calls; nothing else changes.
 - **Travel interstitial + road events:** between stops, a GBA-style pixel-art
   screen shows your van driving a neon highway (parallax scenery, bobbing van,
   spinning wheels) with a route ribbon tracking progress to the next stop. About

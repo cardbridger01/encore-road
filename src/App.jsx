@@ -164,6 +164,55 @@ function drawPerks(ownedIds, n = 3) {
   return pool.slice(0, Math.min(n, pool.length)).map((p) => p.id);
 }
 
+/* ============================ LEADERBOARD ============================
+   Arcade-style local high scores, kept per difficulty. Persisted to
+   localStorage (this ships as a static site, so there's no backend — scores
+   are per-browser). Top 10 per board; qualifying runs prompt for initials.
+   ==================================================================== */
+const LB_KEY = "encoreRoadLeaderboard";
+const LB_SIZE = 10;
+const LB_NAME_KEY = "encoreRoadLastInitials";
+
+// A tour's final score: cash is the spine, fans are worth something, and
+// average gig grade is a multiplier so a rich-but-sloppy run can't top a great one.
+const GRADE_POINTS = { S: 100, A: 80, B: 60, C: 35, F: 0 };
+function scoreRun({ cash, fans, history }) {
+  const gigs = history.length || 1;
+  const gradeAvg = history.reduce((a, h) => a + (GRADE_POINTS[h.grade] || 0), 0) / gigs;
+  const base = Math.max(0, cash) + fans * 4;
+  const mult = 0.6 + (gradeAvg / 100) * 0.8; // 0.6x (all F) .. 1.4x (all S)
+  return Math.round(base * mult);
+}
+
+function loadBoards() {
+  if (typeof window === "undefined") return { easy: [], normal: [], hard: [] };
+  try {
+    const raw = window.localStorage.getItem(LB_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      easy: Array.isArray(parsed?.easy) ? parsed.easy : [],
+      normal: Array.isArray(parsed?.normal) ? parsed.normal : [],
+      hard: Array.isArray(parsed?.hard) ? parsed.hard : [],
+    };
+  } catch { return { easy: [], normal: [], hard: [] }; }
+}
+function saveBoards(boards) {
+  try { window.localStorage.setItem(LB_KEY, JSON.stringify(boards)); } catch { /* storage full/blocked */ }
+}
+// where would `score` place on this board? returns 0-based rank, or -1 if it doesn't make the cut
+function rankFor(board, score) {
+  const better = board.filter((e) => e.score >= score).length;
+  return better < LB_SIZE ? better : -1;
+}
+function insertScore(boards, diffKey, entry) {
+  const board = [...(boards[diffKey] || []), entry]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, LB_SIZE);
+  const next = { ...boards, [diffKey]: board };
+  saveBoards(next);
+  return next;
+}
+
 // ---------- chart + audio generation ----------
 // Each "feel" defines which 16th-note steps carry kick/snare/hat, giving songs
 // audibly and mechanically distinct patterns instead of one shared groove.
@@ -777,6 +826,81 @@ function useIsNarrow(bp = 620) {
   return narrow;
 }
 
+/* ---- arcade-style initials entry: three letter reels, ▲/▼ per slot ---- */
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -!".split("");
+function InitialsEntry({ rank, score, diffLabel, onSubmit }) {
+  const seed = (typeof window !== "undefined" && window.localStorage.getItem(LB_NAME_KEY)) || "AAA";
+  const [chars, setChars] = useState(() => {
+    const s = (seed + "AAA").slice(0, 3).toUpperCase().split("");
+    return s.map((c) => (LETTERS.includes(c) ? c : "A"));
+  });
+  const bump = (i, dir) => {
+    setChars((cs) => {
+      const next = cs.slice();
+      const at = LETTERS.indexOf(next[i]);
+      next[i] = LETTERS[(at + dir + LETTERS.length) % LETTERS.length];
+      return next;
+    });
+  };
+  const submit = () => {
+    const name = chars.join("").trim() || "AAA";
+    try { window.localStorage.setItem(LB_NAME_KEY, name); } catch { /* ignore */ }
+    onSubmit(name);
+  };
+  return (
+    <div className="panel center hs-entry">
+      <Confetti count={70} />
+      <div className="kicker">NEW HIGH SCORE</div>
+      <h1 className="hs-rank">#{rank + 1} <span className="hs-diff">{diffLabel}</span></h1>
+      <div className="hs-score">{score.toLocaleString()}</div>
+      <p className="lede">Enter your initials, hero.</p>
+      <div className="reels">
+        {chars.map((c, i) => (
+          <div className="reel" key={i}>
+            <button className="reel-btn" onClick={() => bump(i, 1)} aria-label="next letter">▲</button>
+            <div className="reel-char">{c === " " ? "␣" : c}</div>
+            <button className="reel-btn" onClick={() => bump(i, -1)} aria-label="previous letter">▼</button>
+          </div>
+        ))}
+      </div>
+      <button className="btn big" onClick={submit}>Carve it in →</button>
+    </div>
+  );
+}
+
+/* ---- leaderboard table, one board per difficulty ---- */
+function Leaderboard({ boards, activeKey, onSelect, highlight }) {
+  const board = boards[activeKey] || [];
+  return (
+    <div className="lb">
+      <div className="lb-tabs">
+        {Object.values(DIFFICULTY).map((d) => (
+          <button key={d.key}
+            className={"lb-tab" + (activeKey === d.key ? " sel" : "")}
+            onClick={() => onSelect(d.key)}>{d.label}</button>
+        ))}
+      </div>
+      {board.length === 0 ? (
+        <p className="hint lb-empty">No scores yet on {DIFFICULTY[activeKey].label}. Be the first.</p>
+      ) : (
+        <div className="lb-rows">
+          {board.map((e, i) => {
+            const isMe = highlight && highlight.key === activeKey && highlight.ts === e.ts;
+            return (
+              <div className={"lb-row" + (isMe ? " me" : "") + (i === 0 ? " first" : "")} key={e.ts || i}>
+                <span className="lb-pos">{i + 1}</span>
+                <span className="lb-name">{e.name}</span>
+                <span className="lb-meta">{e.fans}f · {e.grades}</span>
+                <span className="lb-score">{e.score.toLocaleString()}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Swipeable song carousel for narrow screens: scroll-snap cards, prev/next
 // arrows, and a position readout. Tapping a card selects that song.
 function SongCarousel({ songs, selectedId, onSelect, arch }) {
@@ -864,18 +988,49 @@ function drawWheel(g, wx, wy, s, spin) {
   else rect(g, wx, wy + 1.4 * s, 4 * s, s * 1.2, "#0a0a0f");
 }
 // van anchored by top-left of body; wheels sit 11*s below top. faces right.
-function drawVan(g, x, y, s, t, tilt = 0) {
-  rect(g, x - s, y + 11 * s + tilt, 22 * s, s, "rgba(0,0,0,0.35)");
-  drawWheel(g, x + 2 * s, y + 7 * s + (tilt ? tilt : 0), s, t * 8);
-  drawWheel(g, x + 14 * s, y + 7 * s, s, t * 8);
-  rect(g, x, y + tilt, 20 * s, 7 * s, PX.van);
-  rect(g, x, y + 6 * s + tilt, 20 * s, s, PX.vanDk);
-  rect(g, x, y + tilt, 20 * s, s, PX.vanLt);
-  rect(g, x + 11 * s, y - 4 * s + tilt, 9 * s, 5 * s, PX.van);   // cab
-  rect(g, x + 12 * s, y - 3 * s + tilt, 6 * s, 3 * s, PX.glass); // windshield
-  rect(g, x, y + 3 * s + tilt, 20 * s, s, PX.stripe);           // side stripe
-  rect(g, x + 19 * s, y + 2 * s + tilt, s, 3 * s, PX.light);    // headlight
-  rect(g, x, y + 2 * s + tilt, s, 3 * s, PX.tail);              // taillight
+// Tour bus, facing right.
+// Anchor: (x, roadY) — roadY is the road surface the wheels rest on.
+// The body is drawn upward from there, so callers never do sprite-height math.
+function drawVan(g, x, roadY, s, t, tilt = 0) {
+  const W = 22, H = 11;                 // body box, in sprite "pixels"
+  const wheelD = 4;                     // wheel is 4x4 sprite px
+  // Seat the wheels so their BOTTOM rests exactly on the road, and hang the
+  // body so its lower edge overlaps the top of the wheels (skirt covers them).
+  const wheelTop = roadY - wheelD * s;
+  const y = wheelTop - (H - 2) * s;     // body top (body overlaps wheels by 2px)
+  const yb = y + tilt;
+
+  rect(g, x - s, roadY, (W + 2) * s, s, "rgba(0,0,0,0.35)");   // shadow
+
+  // wheels: rear tandem pair + single front axle (rear takes the tilt)
+  drawWheel(g, x + 2 * s, wheelTop + (tilt ? tilt : 0), s, t * 8);
+  drawWheel(g, x + 5.2 * s, wheelTop + (tilt ? tilt : 0), s, t * 8);
+  drawWheel(g, x + 16.5 * s, wheelTop, s, t * 8);
+
+  // main body: one tall continuous box
+  rect(g, x, yb, W * s, H * s, PX.van);
+  rect(g, x + (W - 1) * s, yb, s, s, PX.skyMid);                // bevel front-top corner
+  rect(g, x + s, yb, (W - 3) * s, s, PX.vanLt);                 // roof highlight
+  rect(g, x, yb + (H - 2) * s, W * s, 2 * s, PX.vanDk);         // lower skirt shading
+
+  // small destination sign, tucked under the roof at the front
+  rect(g, x + 16 * s, yb + 1.3 * s, 4.5 * s, 1.2 * s, PX.sign);
+
+  // big raked windshield, hanging from just under the sign
+  rect(g, x + 16.4 * s, yb + 3 * s, 4.6 * s, 4 * s, PX.glass);
+  rect(g, x + 15.7 * s, yb + 4 * s, 0.9 * s, 3 * s, PX.glass);  // raked lower edge
+
+  // passenger window row — the detail that reads as "bus"
+  for (let i = 0; i < 5; i++) rect(g, x + (2 + i * 2.7) * s, yb + 3 * s, 2.1 * s, 3.4 * s, PX.glass);
+  for (let i = 1; i < 5; i++) rect(g, x + (4.1 + (i - 1) * 2.7) * s, yb + 3 * s, 0.6 * s, 3.4 * s, PX.vanDk);
+
+  rect(g, x + 15.2 * s, yb + 3 * s, 0.6 * s, 5 * s, PX.vanDk);  // door seam
+  rect(g, x, yb + 7.6 * s, W * s, 0.9 * s, PX.stripe);          // band stripe
+
+  // lights
+  rect(g, x + (W - 1) * s, yb + 8.8 * s, s, 1.4 * s, PX.light); // headlight
+  rect(g, x, yb + 8.8 * s, s, 1.4 * s, PX.tail);                // taillight
+  rect(g, x + (W - 1) * s, yb + 2.2 * s, s, 0.8 * s, PX.light); // marker lamp
 }
 
 // ---- static event vignettes (drawn on the same canvas when an event fires) ----
@@ -896,34 +1051,34 @@ function ground(g, W, H) {
 }
 const SCENES = {
   flat(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
-    drawVan(g, 90, H - 34 - 33 + 6, 3, 0.2, 6); // tilted (flat)
-    rect(g, 96, H - 40, 12, 6, "#0c0c11"); // flat tire heap
-    rect(g, 150, H - 52, 3, 10, "#cfc6b8"); rect(g, 149, H - 54, 5, 3, "#cfc6b8"); }, // jack
+    drawVan(g, 90, H - 34, 3, 0.2, 6); // rear sags (flat)
+    rect(g, 66, H - 40, 12, 6, "#0c0c11");                                   // removed tire lying flat
+    rect(g, 60, H - 46, 3, 6, "#cfc6b8"); rect(g, 58, H - 48, 7, 3, "#cfc6b8"); }, // jack behind it
   food(g, W, H, t) { bgNight(g, W, H, t);
     rect(g, 20, H - 78, 70, 44, "#2a2438"); rect(g, 24, H - 74, 62, 22, "#3d2352"); // diner
     rect(g, 30, H - 92, 50, 12, PX.neon2); rect(g, 34, H - 89, 8, 6, "#1c1330"); rect(g, 46, H - 89, 8, 6, "#1c1330");
-    ground(g, W, H); drawVan(g, 120, H - 34 - 33, 3, t); },
+    ground(g, W, H); drawVan(g, 120, H - 34, 3, t); },
   crowd(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
-    drawVan(g, 70, H - 34 - 33, 3, t);
+    drawVan(g, 70, H - 34, 3, t);
     for (let i = 0; i < 6; i++) { const px = 140 + i * 14, bob = Math.sin(t * 4 + i) * 2;
       rect(g, px, H - 46 + bob, 6, 10, i % 2 ? PX.neon1 : PX.neon2); rect(g, px + 1, H - 50 + bob, 4, 4, "#ffd9b8"); } },
   cop(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
-    drawVan(g, 120, H - 34 - 33, 3, t);
+    drawVan(g, 120, H - 34, 3, t);
     rect(g, 30, H - 46, 40, 14, "#20304a"); rect(g, 36, H - 52, 26, 8, "#20304a"); // cruiser
     const f = Math.floor(t * 6) % 2; rect(g, 34, H - 56, 8, 5, f ? PX.tail : PX.neon1); rect(g, 52, H - 56, 8, 5, f ? PX.neon1 : PX.tail);
     rect(g, 34, H - 34, 10, 10, PX.tire); rect(g, 56, H - 34, 10, 10, PX.tire); },
   scenic(g, W, H, t) { bgNight(g, W, H, t);
     for (let x = 0; x < W; x += 4) { const hh = 70 + Math.sin(x * 0.05) * 10; rect(g, x, hh, 4, H - hh - 34, PX.hillNear); }
-    ground(g, W, H); drawVan(g, 96, H - 34 - 33, 3, t);
+    ground(g, W, H); drawVan(g, 96, H - 34, 3, t);
     rect(g, 150, 40, 2, 2, PX.star); rect(g, 170, 54, 2, 2, PX.star); },
   engine(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
-    drawVan(g, 96, H - 34 - 33, 3, t * 0.2);
+    drawVan(g, 96, H - 34, 3, t * 0.2);
     for (let i = 0; i < 5; i++) { const sy = H - 70 - i * 8 - Math.sin(t * 3 + i) * 3; rect(g, 150 + Math.sin(t * 2 + i) * 6, sy, 6 + i, 6 + i, "rgba(180,180,190,0.5)"); } },
   cash(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H);
-    drawVan(g, 96, H - 34 - 33, 3, t);
+    drawVan(g, 96, H - 34, 3, t);
     for (let i = 0; i < 7; i++) { const cy = 30 + ((t * 30 + i * 18) % 80), cx = 60 + i * 20; rect(g, cx, cy, 6, 6, PX.neon2); rect(g, cx + 2, cy + 1, 2, 4, "#7a5200"); } },
   storm(g, W, H, t) { rect(g, 0, 0, W, H, "#161022"); rect(g, 0, 0, W, H * 0.5, "#241830"); ground(g, W, H);
-    drawVan(g, 96, H - 34 - 33, 3, t);
+    drawVan(g, 96, H - 34, 3, t);
     for (let i = 0; i < 40; i++) { const rx = (i * 37 + t * 240) % W, ry = (i * 53 + t * 300) % H; rect(g, rx, ry, 1, 6, PX.rain); } },
 };
 
@@ -947,17 +1102,25 @@ function rollEvent() {
   return EVENTS[(Math.random() * EVENTS.length) | 0];
 }
 
-// tiny pixel-van SVG used as the moving marker on the route ribbon
+// tiny pixel-bus SVG used as the moving marker on the route ribbon
 function VanIcon() {
   return (
-    <svg viewBox="0 0 22 16" width="26" height="19" shapeRendering="crispEdges" aria-hidden="true">
-      <rect x="0" y="5" width="20" height="7" fill="#ff3d7f" />
-      <rect x="11" y="1" width="9" height="5" fill="#ff3d7f" />
-      <rect x="12" y="2" width="6" height="3" fill="#8fe6ff" />
-      <rect x="0" y="8" width="20" height="1" fill="#57e0e8" />
-      <rect x="2" y="11" width="4" height="4" fill="#0c0c11" />
-      <rect x="14" y="11" width="4" height="4" fill="#0c0c11" />
-      <rect x="19" y="7" width="1" height="2" fill="#ffd36b" />
+    <svg viewBox="0 0 24 14" width="28" height="17" shapeRendering="crispEdges" aria-hidden="true">
+      <rect x="0" y="1" width="22" height="10" fill="#ff3d7f" />
+      <rect x="21" y="1" width="1" height="1" fill="none" />
+      <rect x="1" y="1" width="19" height="1" fill="#ff8fb5" />
+      <rect x="0" y="9" width="22" height="2" fill="#b3164f" />
+      <rect x="15" y="2" width="5" height="1" fill="#ffb03a" />
+      <rect x="2" y="3" width="2" height="3" fill="#8fe6ff" />
+      <rect x="5" y="3" width="2" height="3" fill="#8fe6ff" />
+      <rect x="8" y="3" width="2" height="3" fill="#8fe6ff" />
+      <rect x="11" y="3" width="2" height="3" fill="#8fe6ff" />
+      <rect x="17" y="3" width="3" height="3" fill="#8fe6ff" />
+      <rect x="0" y="7" width="22" height="1" fill="#57e0e8" />
+      <rect x="2" y="11" width="3" height="3" fill="#0c0c11" />
+      <rect x="16" y="11" width="3" height="3" fill="#0c0c11" />
+      <rect x="21" y="8" width="1" height="2" fill="#ffd36b" />
+      <rect x="0" y="8" width="1" height="2" fill="#ff5a5a" />
     </svg>
   );
 }
@@ -991,9 +1154,10 @@ function TravelScene({ fromLabel, toLabel, event, onDone }) {
       for (let i = 0; i < 10; i++) { const dx = (i * 32 - (t * 150) % 32 + W) % (W + 32) - 16; rect(g, dx, H - 16, 14, 3, PX.dash); }
       // van bobbing
       const bob = Math.sin(t * 11) * 2;
-      drawVan(g, 92, H - 34 - 33 + bob, 3, t);
-      // headlight beam
-      g.fillStyle = "rgba(255,211,107,0.12)"; g.beginPath(); g.moveTo(155, H - 40 + bob); g.lineTo(200, H - 52); g.lineTo(200, H - 30); g.closePath(); g.fill();
+      drawVan(g, 92, H - 34 + bob, 3, t);
+      // headlight beam, cast from the bus's front headlight
+      g.fillStyle = "rgba(255,211,107,0.12)"; g.beginPath();
+      g.moveTo(158, H - 34 - 9 + bob); g.lineTo(205, H - 50); g.lineTo(205, H - 30); g.closePath(); g.fill();
     };
 
     const loop = (ts) => {
@@ -1091,6 +1255,10 @@ export default function App() {
   const [perkOffer, setPerkOffer] = useState([]);   // 3 ids currently offered
   const [travelEvent, setTravelEvent] = useState(null); // event rolled for current drive
   const [eventsSeen, setEventsSeen] = useState([]);      // ids of road events encountered
+  const [boards, setBoards] = useState(loadBoards);
+  const [pendingScore, setPendingScore] = useState(null); // {score, rank} awaiting initials
+  const [lbTab, setLbTab] = useState(diffKey);
+  const [lbHighlight, setLbHighlight] = useState(null);   // {key, ts} of the just-added entry
 
   const perkMods = React.useMemo(() => aggregatePerks(ownedPerks), [ownedPerks]);
   const isNarrow = useIsNarrow();
@@ -1196,11 +1364,16 @@ export default function App() {
   }, [phase]); // eslint-disable-line
 
   // after viewing results: a B/A/S gig with perks still in the pool offers a perk
+  const isFinalStop = () => stop + 1 >= TOTAL_STOPS;
+  // A perk only makes sense if there's another gig left to use it on.
+  const perkAvailable = () =>
+    !isFinalStop() && cash >= 0 &&
+    ["B", "A", "S"].includes(result?.grade) &&
+    ownedPerks.length < PERKS.length;
+
   const afterResult = () => {
     if (cash < 0) { setPhase("end"); return; }
-    const qualifies = ["B", "A", "S"].includes(result?.grade);
-    const poolLeft = PERKS.length - ownedPerks.length;
-    if (qualifies && poolLeft > 0) {
+    if (perkAvailable()) {
       setPerkOffer(drawPerks(ownedPerks, 3));
       setPhase("perks");
     } else {
@@ -1235,10 +1408,36 @@ export default function App() {
     advanceStop();
   };
 
+  // When a tour ends, score it once and see if it makes that difficulty's board.
+  // `tourScored` is reset only by restart(), so returning to "end" after the
+  // initials screen doesn't re-trigger the prompt.
+  const tourScored = useRef(false);
+  useEffect(() => {
+    if (phase !== "end" || tourScored.current) return;
+    tourScored.current = true;
+    if (history.length === 0) return;          // nothing played, nothing to rank
+    const score = scoreRun({ cash, fans, history });
+    const rank = rankFor(boards[diffKey] || [], score);
+    if (rank >= 0) { setPendingScore({ score, rank }); setPhase("highscore"); }
+  }, [phase]); // eslint-disable-line
+
+  const submitInitials = (name) => {
+    const score = pendingScore.score;
+    const grades = history.map((h) => h.grade).join("");
+    const entry = { name, score, fans, cash, grades, ts: Date.now() };
+    setBoards((b) => insertScore(b, diffKey, entry));
+    setLbTab(diffKey);
+    setLbHighlight({ key: diffKey, ts: entry.ts });
+    setPendingScore(null);
+    setPhase("end");
+  };
+
   const restart = () => {
     setStop(0); setCash(600); setFans(120); setMorale(80);
     setHistory([]); setResult(null); setFeedback({ rating: 0, notes: "" });
     setOwnedPerks([]); setPerkOffer([]); setEventsSeen([]); setTravelEvent(null);
+    setPendingScore(null); setLbHighlight(null);
+    tourScored.current = false;
     setPhase("map");
   };
 
@@ -1249,6 +1448,7 @@ export default function App() {
       difficulty: diffKey,
       device: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
       finalCash: cash, finalFans: fans,
+      tourScore: history.length ? scoreRun({ cash, fans, history }) : null,
       perks: ownedPerks,
       roadEvents: eventsSeen,
       runs: history,
@@ -1319,6 +1519,7 @@ export default function App() {
           </div>
 
           <button className="btn big" onClick={() => setPhase("map")}>Load the van →</button>
+          <button className="relink" onClick={() => { setLbTab(diffKey); setPhase("boards"); }}>View high scores ▸</button>
           <button className="relink" onClick={() => setPhase("calibrate")}>
             {calOffsetMs === 0 ? "Calibrate audio timing ▸" : `Recalibrate audio (currently ${calOffsetMs}ms) ▸`}
           </button>
@@ -1524,12 +1725,12 @@ export default function App() {
               <span>Crowd <b>~{result.shownAttend}</b></span>
             </div>
 
-            {["B", "A", "S"].includes(g) && ownedPerks.length < PERKS.length && cash >= 0 && (
+            {perkAvailable() && (
               <p className="perk-teaser">✦ Strong set — pick a tour perk next ✦</p>
             )}
             <button className="btn big" onClick={afterResult}>
-              {stop + 1 >= TOTAL_STOPS || cash < 0 ? "Wrap the tour →"
-                : ["B", "A", "S"].includes(g) && ownedPerks.length < PERKS.length ? "Choose a perk →"
+              {isFinalStop() || cash < 0 ? "Wrap the tour →"
+                : perkAvailable() ? "Choose a perk →"
                 : "Back in the van →"}
             </button>
           </div>
@@ -1567,6 +1768,25 @@ export default function App() {
         </div>
       )}
 
+      {phase === "boards" && (
+        <div className="panel center">
+          <div className="kicker">HALL OF FAME</div>
+          <h2 className="h2" style={{ marginTop: 2 }}>High scores</h2>
+          <p className="hint" style={{ marginBottom: 6 }}>Saved in this browser. One board per difficulty.</p>
+          <Leaderboard boards={boards} activeKey={lbTab} onSelect={setLbTab} highlight={lbHighlight} />
+          <button className="btn big" onClick={() => setPhase("title")}>← Back</button>
+        </div>
+      )}
+
+      {phase === "highscore" && pendingScore && (
+        <InitialsEntry
+          rank={pendingScore.rank}
+          score={pendingScore.score}
+          diffLabel={diff.label}
+          onSubmit={submitInitials}
+        />
+      )}
+
       {phase === "end" && (
         <div className="panel center">
           <div className="kicker">TOUR OVER</div>
@@ -1575,6 +1795,12 @@ export default function App() {
             <div><span className="dim">Final cash</span><b>{fmt$(cash)}</b></div>
             <div><span className="dim">Fanbase</span><b>{fans.toLocaleString()}</b></div>
           </div>
+          {history.length > 0 && (
+            <div className="tour-score">
+              <span className="payout-label">Tour score · {diff.label}</span>
+              <span className="tour-score-num">{scoreRun({ cash, fans, history }).toLocaleString()}</span>
+            </div>
+          )}
           <div className="hist">
             {history.map((h, i) => (
               <div key={i} className="hist-row">
@@ -1585,6 +1811,11 @@ export default function App() {
               </div>
             ))}
           </div>
+          <div className="section lb-section">
+            <div className="sec-label">High scores</div>
+            <Leaderboard boards={boards} activeKey={lbTab} onSelect={setLbTab} highlight={lbHighlight} />
+          </div>
+
           <div className="fb-block">
             <div className="sec-label">Playtester feedback</div>
             <div className="fb-stars">
@@ -1601,7 +1832,7 @@ export default function App() {
               onChange={(e) => setFeedback((f) => ({ ...f, notes: e.target.value }))}
             />
             <button className="btn big alt" onClick={exportPlaytestData}>Export playtest data ⬇</button>
-            <p className="hint">Downloads a JSON file — send it back so runs from different testers can be compared.</p>
+            <p className="hint export-hint">Downloads a JSON file — send it back so runs from different testers can be compared.</p>
           </div>
 
           <button className="btn big" onClick={restart}>Book another tour ↺</button>
@@ -1635,7 +1866,7 @@ const CSS = `
 .h2 { font-size: 22px; margin: 18px 0 12px; font-weight: 700; }
 .dim { color: #9a9086; font-weight: 400; }
 .btn { cursor: pointer; border: none; font-family: inherit; font-weight: 700; border-radius: 12px; }
-.btn.big { margin-top: 18px; padding: 15px 26px; font-size: 17px; background: #FF3D7F; color: #17111f; box-shadow: 0 6px 0 #a11f4e; transition: transform .08s; width: 100%; max-width: 420px;}
+.btn.big { margin-top: 18px; margin-bottom: 8px; padding: 15px 26px; font-size: 17px; background: #FF3D7F; color: #17111f; box-shadow: 0 6px 0 #a11f4e; transition: transform .08s; width: 100%; max-width: 420px;}
 .btn.big:active { transform: translateY(4px); box-shadow: 0 2px 0 #a11f4e; }
 .statbar { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 12px; font-size: 14px; }
 .stat b { color: #FFB03A; }
@@ -1823,4 +2054,39 @@ const CSS = `
 .event-fx { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 6px 0 4px; }
 .event-fx .fx { font-family: 'Bungee', sans-serif; font-size: 14px; padding: 4px 12px; border-radius: 10px; background: rgba(255,255,255,0.06); }
 .event-fx .fx.pos { color: #8CFF9E; } .event-fx .fx.neg { color: #ff9a9a; }
+
+/* ---- export hint spacing (button has a 6px drop shadow) ---- */
+.export-hint { margin-top: 6px; text-align: center; line-height: 1.4; }
+
+/* ---- tour score on the end screen ---- */
+.tour-score { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 12px 0 4px; }
+.tour-score-num { font-family: 'Bungee', sans-serif; font-size: 38px; line-height: 1; color: #FFB03A; text-shadow: 0 0 22px rgba(255,176,58,0.3); }
+
+/* ---- arcade initials entry ---- */
+.hs-entry { position: relative; overflow: hidden; }
+.hs-rank { font-family: 'Bungee', sans-serif; font-size: 34px; color: #F4EDE0; margin: 2px 0; }
+.hs-diff { font-size: 16px; color: #57E0E8; }
+.hs-score { font-family: 'Bungee', sans-serif; font-size: 44px; color: #FFB03A; line-height: 1; margin-bottom: 4px; }
+.reels { display: flex; gap: 14px; margin: 10px 0 4px; }
+.reel { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.reel-btn { width: 52px; height: 34px; border-radius: 8px; border: 1.5px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: #F4EDE0; font-size: 15px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.reel-btn:active { background: rgba(255,61,127,0.25); }
+.reel-char { width: 52px; height: 58px; display: flex; align-items: center; justify-content: center; font-family: 'Bungee', sans-serif; font-size: 32px; color: #FF3D7F; background: rgba(255,61,127,0.08); border: 2px solid #FF3D7F; border-radius: 8px; }
+
+/* ---- leaderboard ---- */
+.lb { width: 100%; max-width: 440px; }
+.lb-section { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.lb-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+.lb-tab { padding: 8px 6px; border-radius: 9px; border: 1.5px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #cfc6b8; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.lb-tab.sel { border-color: #57E0E8; background: rgba(87,224,232,0.12); color: #F4EDE0; }
+.lb-empty { text-align: center; padding: 14px 0; }
+.lb-rows { display: flex; flex-direction: column; gap: 4px; }
+.lb-row { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 10px; align-items: baseline; padding: 8px 12px; border-radius: 9px; background: rgba(255,255,255,0.04); font-size: 14px; }
+.lb-row.first { background: rgba(255,176,58,0.10); border: 1px solid rgba(255,176,58,0.3); }
+.lb-row.me { background: rgba(255,61,127,0.16); border: 1px solid #FF3D7F; }
+.lb-pos { font-family: 'Bungee', sans-serif; font-size: 13px; color: #9a9086; }
+.lb-row.first .lb-pos { color: #FFB03A; }
+.lb-name { font-family: 'Bungee', sans-serif; letter-spacing: 0.08em; color: #F4EDE0; }
+.lb-meta { font-size: 11px; color: #8d8478; font-variant-numeric: tabular-nums; }
+.lb-score { font-family: 'Bungee', sans-serif; font-size: 14px; color: #8CFF9E; font-variant-numeric: tabular-nums; }
 `;
