@@ -29,12 +29,36 @@ const DEFAULT_DIFF = "normal";
 
 // feel drives the drum/note pattern; root is the bass note cycle (Hz) per bar.
 // Notes: A2=110/2=55, C3=65.4, D3=73.4, E3=82.4, G2=49, F2=43.7, B2=61.7
+// Bass roots per bar (a 4-bar progression), plus each bar's chord quality so the
+// harmony layer can voice a correct triad. m = minor, M = major.
 const ROOTS = {
   Am:   [55, 55, 65.4, 49],
   Dm:   [73.4, 73.4, 55, 65.4],
   Em:   [82.4, 61.7, 55, 49],
   Gmaj: [49, 73.4, 61.7, 55],
   Fmaj: [43.7, 65.4, 55, 49],
+};
+const QUALS = {
+  Am:   ["m", "m", "M", "M"],   // Am  Am  C   G
+  Dm:   ["m", "m", "m", "M"],   // Dm  Dm  Am  C
+  Em:   ["m", "m", "m", "M"],   // Em  Bm  Am  G
+  Gmaj: ["M", "M", "m", "m"],   // G   D   Bm  Am
+  Fmaj: ["M", "M", "m", "M"],   // F   C   Am  G
+};
+const SEMI = (n) => Math.pow(2, n / 12);
+const triadOf = (root, qual) => [root, root * SEMI(qual === "m" ? 3 : 4), root * SEMI(7)];
+
+/* How each genre plays its harmony. Audio-only — never tappable, so the tuned
+   difficulty curve is untouched.
+     chord = all notes together (strummed/held)
+     arp   = one note at a time, cycling the triad
+     power = root + fifth only (the punk/metal guitar sound)  */
+const HARM = {
+  punk:   { mode: "chord", voicing: "power", steps: [0, 2, 4, 6, 8, 10, 12, 14], oct: 2 },  // 8th-note downstrokes
+  metal:  { mode: "chord", voicing: "power", steps: [0, 3, 6, 8, 11, 14],        oct: 2 },  // syncopated chug
+  anthem: { mode: "chord", voicing: "triad", steps: [0, 8],                      oct: 4 },  // big sustained
+  synth:  { mode: "arp",   voicing: "triad", steps: [0, 2, 4, 6, 8, 10, 12, 14], oct: 4 },  // arp 8ths
+  ballad: { mode: "arp",   voicing: "triad", steps: [0, 4, 8, 12],               oct: 4 },  // gentle quarters
 };
 
 const SONGS = [
@@ -275,9 +299,27 @@ function buildChart(song, tier, seed, mode) {
     : [0, 4, 8, 12, 6];
 
   let lastStepT = -Infinity; // last step that placed a tap, for min-gap spacing
+  const harm = HARM[song.tag] || HARM.anthem;
+  const quals = QUALS[song.root] || QUALS.Am;
+  let arpIdx = 0;
 
   for (let bar = 0; bar < bars; bar++) {
     const bt = bar * 16 * step;
+
+    // --- harmony layer: audio only, never tappable (difficulty stays as tuned) ---
+    const rootF = bassLine[bar % 4];
+    const triad = triadOf(rootF, quals[bar % 4]);
+    const voiced = harm.voicing === "power" ? [triad[0], triad[2]] : triad;
+    for (const hs of harm.steps) {
+      const ht = bt + hs * step;
+      if (harm.mode === "arp") {
+        const n = voiced[arpIdx++ % voiced.length];
+        audio.push({ t: ht, inst: "harm", freqs: [n * harm.oct] });
+      } else {
+        audio.push({ t: ht, inst: "harm", freqs: voiced.map((f) => f * harm.oct) });
+      }
+    }
+
     for (let s = 0; s < 16; s++) {
       const t = bt + s * step;
       const p = feelPattern(song.feel, s, bar, rng);
@@ -314,45 +356,283 @@ function buildChart(song, tier, seed, mode) {
   return { notes, audio, length: bars * 16 * step };
 }
 
-function makeSynth(ctx) {
-  const master = ctx.createGain();
-  master.gain.value = 0.5;
-  master.connect(ctx.destination);
+/* ============================ AUDIO ENGINE ============================
+   A song's music comes from a "track". Two implementations sit behind one
+   interface, so Gig never knows which it's playing:
+
+     SynthTrack — procedural, genre-specific instrument kits (default, no assets)
+     FileTrack  — a real recorded audio file (drop your own music in later)
+
+   TO REPLACE A SONG'S MUSIC WITH YOUR OWN RECORDING:
+     add `src` (and usually `srcOffset`) to that song in SONGS. Nothing else
+     changes — the chart, judging, scoring and difficulty all still work, because
+     tappable notes are generated from the song's bpm/feel, not from the synth.
+       { id: "s1", name: "Gasoline Halo", bpm: 168, ...,
+         src: "/audio/gasoline-halo.mp3",  // file in /public/audio/
+         srcOffset: 0.35 }                 // seconds into the file where beat 1 lands
+   ==================================================================== */
+
+// cheap generated impulse response — gives each genre its own sense of space
+function makeReverbIR(ctx, seconds, decay) {
+  const len = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+// waveshaper curve — this is what turns a saw wave into a guitar
+function makeDistCurve(k) {
+  const n = 1024, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
+  }
+  return curve;
+}
+const noiseBuf = (ctx, secs) => {
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * secs)), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  return buf;
+};
+
+/* Per-genre instrument kits. This is what makes punk sound like punk and a
+   ballad sound like a ballad, rather than every song being the same drum
+   machine with a different tempo. */
+const KITS = {
+  punk: {
+    gain: 0.55, verb: 0.05, verbLen: 0.7, delay: 0,
+    kick:  { f0: 165, f1: 48, dec: 0.10, gain: 1.0, click: 0.5 },
+    snare: { hp: 1500, dec: 0.13, gain: 0.62, tone: 190 },
+    hat:   { hp: 7000, dec: 0.035, gain: 0.20 },
+    bass:  { wave: "sawtooth", lp: 900, dec: 0.18, gain: 0.20, drive: 8 },
+    harm:  { wave: "sawtooth", drive: 45, lp: 2800, dec: 0.19, gain: 0.10 },
+  },
+  metal: {
+    gain: 0.5, verb: 0.03, verbLen: 0.6, delay: 0,
+    kick:  { f0: 135, f1: 40, dec: 0.075, gain: 1.0, click: 0.95 },
+    snare: { hp: 2000, dec: 0.10, gain: 0.6, tone: 225 },
+    hat:   { hp: 9000, dec: 0.028, gain: 0.16 },
+    bass:  { wave: "sawtooth", lp: 700, dec: 0.14, gain: 0.22, drive: 14 },
+    harm:  { wave: "sawtooth", drive: 85, lp: 2300, dec: 0.12, gain: 0.11 }, // palm-muted chug
+  },
+  synth: {
+    gain: 0.5, verb: 0.10, verbLen: 1.6, delay: 0.18,
+    kick:  { f0: 120, f1: 45, dec: 0.30, gain: 0.95, click: 0.12 },          // 808-ish sub
+    snare: { clap: true, gain: 0.40 },                                        // clap, not snare
+    hat:   { hp: 8500, dec: 0.03, gain: 0.22 },
+    bass:  { wave: "square", lp: 380, lpEnv: 2400, dec: 0.24, gain: 0.22, drive: 3 }, // acid filter env
+    harm:  { wave: "sawtooth", drive: 0, lp: 3200, dec: 0.42, gain: 0.085, detune: 8 },
+  },
+  anthem: {
+    gain: 0.5, verb: 0.22, verbLen: 2.2, delay: 0.12,
+    kick:  { f0: 150, f1: 50, dec: 0.16, gain: 0.95, click: 0.3 },
+    snare: { hp: 1100, dec: 0.24, gain: 0.6, tone: 180 },
+    hat:   { hp: 6000, dec: 0.05, gain: 0.16 },
+    bass:  { wave: "triangle", lp: 1200, dec: 0.26, gain: 0.24, drive: 2 },
+    harm:  { wave: "sawtooth", drive: 6, lp: 3300, dec: 0.85, gain: 0.075, detune: 6 },
+  },
+  ballad: {
+    gain: 0.85, verb: 0.32, verbLen: 2.8, delay: 0.10,   // level-matched: ballad is sparse, needs more gain
+    kick:  { f0: 120, f1: 45, dec: 0.14, gain: 0.68, click: 0.08 },
+    snare: { hp: 900, dec: 0.16, gain: 0.28, tone: 160 },                    // soft brush/rim
+    hat:   { hp: 5000, dec: 0.06, gain: 0.10 },
+    bass:  { wave: "triangle", lp: 700, dec: 0.40, gain: 0.22, drive: 0 },
+    harm:  { wave: "triangle", drive: 0, lp: 2600, dec: 1.1, gain: 0.10, detune: 3 },
+  },
+};
+
+function makeKit(ctx, tag) {
+  const K = KITS[tag] || KITS.anthem;
+  // Master chain: sum -> limiter -> out. The limiter is what stops dense genres
+  // (metal chugs, anthem triads) from hard-clipping when several voices land on
+  // the same beat — measured clipping at peak 1.00 before this was added.
+  const master = ctx.createGain(); master.gain.value = K.gain;
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.12;
+  master.connect(limiter); limiter.connect(ctx.destination);
+
+  // shared reverb send
+  let verbIn = null;
+  if (K.verb > 0) {
+    const conv = ctx.createConvolver(); conv.buffer = makeReverbIR(ctx, K.verbLen, 2.2);
+    const wet = ctx.createGain(); wet.gain.value = K.verb;
+    verbIn = ctx.createGain();
+    verbIn.connect(conv); conv.connect(wet); wet.connect(master);
+  }
+  // shared delay send (synth/anthem shimmer)
+  let delayIn = null;
+  if (K.delay > 0) {
+    const dl = ctx.createDelay(1.0); dl.delayTime.value = K.delay;
+    const fb = ctx.createGain(); fb.gain.value = 0.32;
+    const wet = ctx.createGain(); wet.gain.value = 0.28;
+    delayIn = ctx.createGain();
+    delayIn.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(master);
+  }
+  const send = (node, amt = 1) => {
+    if (verbIn) { const g = ctx.createGain(); g.gain.value = amt; node.connect(g); g.connect(verbIn); }
+    if (delayIn) { const g = ctx.createGain(); g.gain.value = amt * 0.6; node.connect(g); g.connect(delayIn); }
+  };
+
+  const kick = (t) => {
+    const s = K.kick;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(s.f0, t);
+    o.frequency.exponentialRampToValueAtTime(s.f1, t + s.dec);
+    g.gain.setValueAtTime(s.gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + s.dec + 0.03);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + s.dec + 0.05);
+    if (s.click > 0) {  // beater click — what makes a metal kick cut
+      const c = ctx.createBufferSource(); c.buffer = noiseBuf(ctx, 0.012);
+      const cf = ctx.createBiquadFilter(); cf.type = "highpass"; cf.frequency.value = 3000;
+      const cg = ctx.createGain(); cg.gain.value = s.click * 0.5;
+      c.connect(cf); cf.connect(cg); cg.connect(master); c.start(t);
+    }
+  };
+  const snare = (t) => {
+    const s = K.snare;
+    if (s.clap) {  // synth genres get a clap: three quick noise bursts
+      for (const d of [0, 0.012, 0.024]) {
+        const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, 0.09);
+        const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1600; f.Q.value = 1.2;
+        const g = ctx.createGain(); g.gain.setValueAtTime(s.gain * (d ? 0.6 : 1), t + d);
+        g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.09);
+        n.connect(f); f.connect(g); g.connect(master); send(g, 0.7); n.start(t + d);
+      }
+      return;
+    }
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, s.dec + 0.02);
+    const f = ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = s.hp;
+    const g = ctx.createGain(); g.gain.setValueAtTime(s.gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + s.dec);
+    n.connect(f); f.connect(g); g.connect(master); send(g, 0.6); n.start(t);
+    if (s.tone) {  // drum body under the noise
+      const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = s.tone;
+      const og = ctx.createGain(); og.gain.setValueAtTime(s.gain * 0.5, t);
+      og.gain.exponentialRampToValueAtTime(0.001, t + s.dec * 0.7);
+      o.connect(og); og.connect(master); o.start(t); o.stop(t + s.dec);
+    }
+  };
+  const hat = (t) => {
+    const s = K.hat;
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, s.dec + 0.01);
+    const f = ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = s.hp;
+    const g = ctx.createGain(); g.gain.setValueAtTime(s.gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + s.dec);
+    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+  };
+  const bass = (t, freq) => {
+    const s = K.bass;
+    if (!freq) return;
+    const o = ctx.createOscillator(); o.type = s.wave; o.frequency.value = freq;
+    const f = ctx.createBiquadFilter(); f.type = "lowpass";
+    if (s.lpEnv) {  // acid-style filter envelope
+      f.frequency.setValueAtTime(s.lpEnv, t);
+      f.frequency.exponentialRampToValueAtTime(s.lp, t + s.dec * 0.9);
+      f.Q.value = 6;
+    } else f.frequency.value = s.lp;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(s.gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + s.dec);
+    let node = o;
+    if (s.drive > 0) { const w = ctx.createWaveShaper(); w.curve = makeDistCurve(s.drive); o.connect(w); node = w; }
+    node.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t + s.dec + 0.02);
+  };
+  // harmony: power chords (punk/metal), pads (anthem), arps (synth/ballad)
+  const harm = (t, freqs) => {
+    const s = K.harm;
+    if (!freqs || !freqs.length) return;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(s.gain, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, t + s.dec);
+    const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = s.lp;
+    let node = f;
+    if (s.drive > 0) { const w = ctx.createWaveShaper(); w.curve = makeDistCurve(s.drive); f.connect(w); node = w; }
+    node.connect(g); g.connect(master); send(g, 0.8);
+    for (const fr of freqs) {
+      const o = ctx.createOscillator(); o.type = s.wave; o.frequency.value = fr;
+      if (s.detune) o.detune.value = (Math.random() * 2 - 1) * s.detune;
+      o.connect(f); o.start(t); o.stop(t + s.dec + 0.05);
+    }
+  };
+
   return {
-    kick(t) {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.frequency.setValueAtTime(150, t);
-      o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
-      g.gain.setValueAtTime(1, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-      o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.16);
+    play(e, t) {
+      if (e.inst === "kick") kick(t);
+      else if (e.inst === "snare") snare(t);
+      else if (e.inst === "hat") hat(t);
+      else if (e.inst === "bass") bass(t, e.freq);
+      else if (e.inst === "harm") harm(t, e.freqs);
     },
-    snare(t) {
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.12, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
-      const src = ctx.createBufferSource(); src.buffer = buf;
-      const f = ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 1200;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.6, t);
-      src.connect(f); f.connect(g); g.connect(master); src.start(t);
+    stop() { try { master.disconnect(); } catch { /* already torn down */ } },
+  };
+}
+
+// --- Track implementations (one interface, two backends) ---
+function makeSynthTrack(ctx, song, chart) {
+  const kit = makeKit(ctx, song.tag);
+  let idx = 0, t0 = 0;
+  return {
+    async load() { /* nothing to fetch */ },
+    start(_t0) { t0 = _t0; },
+    tick(ahead) {
+      while (idx < chart.audio.length && t0 + chart.audio[idx].t < ahead) {
+        const e = chart.audio[idx++];
+        const at = t0 + e.t;
+        if (at > ctx.currentTime - 0.02) kit.play(e, at);
+      }
     },
-    hat(t) {
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
-      const src = ctx.createBufferSource(); src.buffer = buf;
-      const f = ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 7000;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.22, t);
-      src.connect(f); f.connect(g); g.connect(master); src.start(t);
+    stop() { kit.stop(); },
+  };
+}
+
+function makeFileTrack(ctx, song) {
+  let buf = null, node = null;
+  return {
+    async load() {
+      const res = await fetch(song.src);
+      if (!res.ok) throw new Error("audio fetch failed: " + res.status);
+      buf = await ctx.decodeAudioData(await res.arrayBuffer());
     },
-    bass(t, freq) {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = "square"; o.frequency.value = freq;
-      const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 500;
-      g.gain.setValueAtTime(0.25, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-      o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t + 0.24);
+    start(t0) {
+      if (!buf) return;
+      node = ctx.createBufferSource(); node.buffer = buf;
+      const g = ctx.createGain(); g.gain.value = song.gain ?? 0.9;
+      node.connect(g); g.connect(ctx.destination);
+      const off = song.srcOffset || 0;   // where beat 1 lives inside the file
+      const now = ctx.currentTime;
+      if (now >= t0) node.start(now, Math.max(0, off + (now - t0))); // decoded late: seek in to stay aligned
+      else if (off >= 0) node.start(t0, off);
+      else node.start(t0 - off, 0);
     },
+    tick() { /* the file plays itself */ },
+    stop() { try { node && node.stop(); } catch { /* not started */ } },
+  };
+}
+
+// Pick a backend for this song. Falls back to the synth if a file won't load,
+// so a bad/missing asset can never leave the player with a silent gig.
+function createTrack(ctx, song, chart) {
+  if (!song.src) return makeSynthTrack(ctx, song, chart);
+  const file = makeFileTrack(ctx, song);
+  const fallback = makeSynthTrack(ctx, song, chart);
+  let usingFile = true;
+  return {
+    async load() {
+      try { await file.load(); }
+      catch (err) { console.warn("Falling back to synth for", song.name, err); usingFile = false; }
+    },
+    start(t0) { (usingFile ? file : fallback).start(t0); },
+    tick(ahead) { (usingFile ? file : fallback).tick(ahead); },
+    stop() { (usingFile ? file : fallback).stop(); },
   };
 }
 
@@ -518,33 +798,28 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
   useEffect(() => {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state !== "running") ctx.resume().catch(() => {});
-    const synth = makeSynth(ctx);
     const chart = buildChart(song, tier, seed, md);
+    const track = createTrack(ctx, song, chart);
     const t0 = ctx.currentTime + 3.2; // countdown
     // Comeback Kid: a bombed last gig means the room is rooting for you tonight
     const comebackBonus = afterBomb ? (pm.afterBombCrowd || 0) : 0;
     const startCrowd = Math.min(100, md.crowdStart + (pm.crowdStartBonus || 0) + comebackBonus);
     const S = {
-      ctx, synth, chart, t0, audioIdx: 0, started: false, finished: false,
+      ctx, track, chart, t0, audioIdx: 0, started: false, finished: false,
       score: 0, combo: 0, maxCombo: 0, crowd: startCrowd, pts: 0, total: 0,
       pressFx: [-9, -9, -9, -9], judgeFx: null, deltas: [],
       missDrainMult: (pm.missDrainMult || 1) * md.missPenaltyMult, canRevive: !!pm.reviveOnce, revived: false,
     };
     stateRef.current = S;
 
+    // Files decode asynchronously; the 3.2s countdown is the loading window.
+    // Synth tracks resolve instantly, so this is a no-op for the default path.
+    let cancelled = false;
+    track.load().then(() => { if (!cancelled) track.start(t0); });
+
     const schedTimer = setInterval(() => {
       if (S.finished) return;
-      const ahead = ctx.currentTime + 0.15;
-      while (S.audioIdx < chart.audio.length && t0 + chart.audio[S.audioIdx].t < ahead) {
-        const e = chart.audio[S.audioIdx++];
-        const at = t0 + e.t;
-        if (at > ctx.currentTime - 0.02) {
-          if (e.inst === "kick") synth.kick(at);
-          else if (e.inst === "snare") synth.snare(at);
-          else if (e.inst === "hat") synth.hat(at);
-          else synth.bass(at, e.freq);
-        }
-      }
+      track.tick(ctx.currentTime + 0.15);
     }, 25);
 
     const cvs = canvasRef.current;
@@ -734,6 +1009,8 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
     window.addEventListener("pointercancel", (e) => release(e.pointerId));
 
     return () => {
+      cancelled = true;
+      track.stop();
       clearInterval(schedTimer);
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKey);
@@ -1145,10 +1422,26 @@ const clamp100 = (n) => Math.max(0, Math.min(100, n));
 const INFAMY_VIRAL_AT = 50;   // infamy at which the virality event pool actually unlocks
 const REP_GAIN = { S: { c: 18, i: -8 }, A: { c: 12, i: -5 }, B: { c: 6, i: -2 }, C: { c: -4, i: 9 }, F: { c: -9, i: 18 } };
 
-function updateRep(cred, infamy, grade, mods = {}) {
+/* Nobody films a disaster nobody watched.
+   Infamy is only earned by horrifying an audience that STAYED — so:
+     - a walkout earns zero infamy (they left before it got good)
+     - infamy scales with how many people you actually disappointed
+   This is what stops "never touch the screen" from being a viable path: an
+   empty room bombing in silence is not a trainwreck, it's a no-show. To farm
+   infamy you must draw a real crowd (promo + fans, which cost cash and require
+   earlier success) and then survive the whole song while playing badly. */
+const INFAMY_CROWD_REF = 220;  // audience size that earns the full listed infamy
+function infamyScale(attend, walked) {
+  if (walked) return 0;
+  return Math.max(0.15, Math.min(1.6, (attend || 0) / INFAMY_CROWD_REF));
+}
+
+function updateRep(cred, infamy, grade, mods = {}, ev = {}) {
   const g = REP_GAIN[grade] || { c: 0, i: 0 };
   let dC = g.c, dI = g.i;
   if (mods.damageControl && (grade === "F" || grade === "C")) { dC *= 0.5; dI *= 0.75; }
+  // gaining infamy requires a witness; losing cred does not
+  if (dI > 0) dI *= infamyScale(ev.attend, ev.walked);
   return { cred: clamp100(cred + dC), infamy: clamp100(infamy + dI) };
 }
 function decayRep(cred, infamy, mods = {}) {
@@ -1764,9 +2057,16 @@ export default function App() {
     } else {
       const gate = shownAttend * ticket * 0.6;      // door take before performance
       const perf = PERF[result.grade];
-      const withPerf = gate * perf;
+      let withPerf = gate * perf;
       lines.push({ label: `Door: ${shownAttend} in @ ${fmt$(ticket)}`, amount: Math.round(gate) });
       lines.push({ label: `Set grade ${result.grade} (×${perf})`, amount: Math.round(withPerf - gate) });
+      // If the room emptied out, you don't get paid like they stayed. No merch,
+      // no bar cut, and a promoter who saw it happen.
+      if (result.walked) {
+        const after = withPerf * 0.35;
+        lines.push({ label: "Room emptied out — promoter withheld", amount: Math.round(after - withPerf) });
+        withPerf = after;
+      }
       const dMult = perkMods.doorMult || 1;
       if (dMult !== 1) lines.push({ label: "Perk: merch / door bonus", amount: Math.round(withPerf * (dMult - 1)) });
       revenue = Math.round(withPerf * dMult);
@@ -1781,11 +2081,12 @@ export default function App() {
     setFans((v) => v + newFans);
     const bombMoraleHit = perkMods.damageControl ? -6 : -12;
     setMorale((m) => applyMoraleFloor(Math.min(100, m + (highGrade ? 8 : result.grade === "F" ? bombMoraleHit : 0))));
-    setCred((c) => updateRep(c, infamy, result.grade, perkMods).cred);
-    setInfamy((inf) => updateRep(cred, inf, result.grade, perkMods).infamy);
+    const repEv = { walked: !!result.walked, attend: shownAttend };
+    setCred((c) => updateRep(c, infamy, result.grade, perkMods, repEv).cred);
+    setInfamy((inf) => updateRep(cred, inf, result.grade, perkMods, repEv).infamy);
     setHistory((h) => [...h, {
       city: city.name, song: plan.song.name, grade: result.grade,
-      acc: Math.round(result.acc * 100), revenue, newFans,
+      acc: Math.round(result.acc * 100), revenue, newFans, walked: !!result.walked, attend: shownAttend,
       deltaMeanMs: result.deltaMeanMs, deltaStdMs: result.deltaStdMs,
     }]);
     setResult((r) => ({ ...r, settled: true, revenue, newFans, shownAttend, breakdown: lines }));
@@ -2214,6 +2515,11 @@ export default function App() {
             <div className="kicker">{city.name} — set complete</div>
             <div className={"grade g-" + g + (celebrate ? " pop" : "")}>{g}</div>
             <h2 className="splash-headline">{headline}</h2>
+            {result.walked ? (
+              <p className="rep-teach cold">They didn't stay to hate it. An empty room makes no legend — <b>no infamy earned</b>.</p>
+            ) : (g === "C" || g === "F") ? (
+              <p className="rep-teach hot">You held them there and they'll be talking about it. <b>+{Math.round((REP_GAIN[g]?.i || 0) * infamyScale(result.shownAttend, false) * (perkMods.damageControl ? 0.75 : 1))} infamy</b> — {result.shownAttend} witnesses.</p>
+            ) : null}
 
             <div className="payout-hero">
               <span className="payout-label">You earned</span>
@@ -2632,6 +2938,10 @@ const CSS = `
 .rm-fill.inf { background: #FF3D7F; }
 .rep-note { font-size: 12px; color: #FF9ec4; margin: 7px 0 0; line-height: 1.35; }
 .rep-note.dim-note { color: #b09a86; }
+.rep-teach { font-size: 13px; line-height: 1.45; text-align: center; max-width: 400px; margin: 0 0 4px; padding: 7px 12px; border-radius: 9px; }
+.rep-teach.cold { color: #9a9086; background: rgba(255,255,255,0.05); }
+.rep-teach.hot { color: #FF9ec4; background: rgba(255,61,127,0.10); }
+.rep-teach b { color: #F4EDE0; }
 .end-rep { font-size: 14px; line-height: 1.45; text-align: center; margin: 2px 0 6px; max-width: 420px; }
 .end-rep.b-infamous { color: #FF9ec4; }
 .end-rep.b-good { color: #8FEAF0; }

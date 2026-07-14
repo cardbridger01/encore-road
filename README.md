@@ -47,6 +47,37 @@ from another project on the same Render account: there's nothing here that
   `localStorage` — **per browser, not global**, since this ships as a static site
   with no backend. Swapping to a real shared leaderboard later means replacing
   `loadBoards`/`saveBoards` with API calls; nothing else changes.
+- **Genre-specific instruments + swappable music:** each genre now has its own
+  synthesised kit rather than every song being the same drum machine at a
+  different tempo. Punk and metal get waveshaper-distorted guitars (8th-note
+  downstrokes vs. syncopated palm-muted chugs); synth gets an 808-style sub kick,
+  a clap instead of a snare, an acid-style filter-envelope bass and arpeggios with
+  delay; anthem gets big sustained triads, a long-tail snare and reverb; ballad
+  gets a soft brushed kit, warm triangle bass and gentle arpeggios in a big room.
+  A harmony layer plays real triads (correct minor/major per bar), and the master
+  bus has a limiter — dense genres measurably clipped at peak 1.00 before it. The
+  harmony is **audio-only and consumes no RNG**, so the tuned difficulty curve and
+  every generated chart are bit-identical to before.
+  **To use your own recordings:** drop a file in `public/audio/` and add `src` +
+  `srcOffset` to that song in `SONGS` — the chart, judging and scoring are
+  generated from `bpm`/`feel`, so nothing else changes. Songs can be swapped one
+  at a time, and a missing or broken file automatically falls back to the synth
+  rather than leaving a silent gig. See `public/audio/README.md`.
+- **Infamy has to be earned (anti-exploit):** infamy is only granted by horrifying
+  an audience that **stayed**. A walkout earns **zero** infamy — nobody films a
+  disaster nobody watched — and infamy scales with how many people were actually
+  in the room (`INFAMY_CROWD_REF`, full value at ~220 heads). A walkout also
+  craters the door take by 65%, since an empty room buys no merch and the promoter
+  saw it happen. The practical effect: "never touch the screen" now ends the tour
+  as **Unknowns with zero infamy**, instead of Notorious. To go viral as a
+  trainwreck you must draw a real crowd (promo + fans, which cost money and
+  require earlier success) and then **hold the room for the whole song while
+  playing badly** — measured, that needs ~80% of notes hit on Normal (~90% on
+  Hard) with deliberately sloppy timing, since accuracy blends hit-rate with
+  precision. That's active, skillful needle-threading, not idling.
+  *Known caveat:* mashing all four lanes still reaches C-grade infamy (~92% of the
+  time on Normal) at half rate, because `doHit` ignores taps with no note nearby.
+  It scores well below honest play, but a spurious-tap penalty would close it.
 - **Reputation & infamy — two ways to get famous:** every gig moves two hidden
   axes. **Cred** rises on B+ sets; **infamy** rises when you bomb. Your standing
   shows on the map (Unknowns → On the Radar → Rising → Acclaimed → Legendary, or
