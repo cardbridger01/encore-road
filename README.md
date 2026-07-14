@@ -47,6 +47,39 @@ from another project on the same Render account: there's nothing here that
   `localStorage` — **per browser, not global**, since this ships as a static site
   with no backend. Swapping to a real shared leaderboard later means replacing
   `loadBoards`/`saveBoards` with API calls; nothing else changes.
+- **Reputation & infamy — two ways to get famous:** every gig moves two hidden
+  axes. **Cred** rises on B+ sets; **infamy** rises when you bomb. Your standing
+  shows on the map (Unknowns → On the Radar → Rising → Acclaimed → Legendary, or
+  Local Disaster → Viral Trainwreck → Notorious) with live cred/infamy meters.
+  Past **50 infamy the virality pool unlocks**: the road starts throwing you
+  hate-watch armies, tabloid buyouts, booing challenges, and anti-fans who buy
+  tickets specifically to heckle. Fans arrive by spectacle instead of skill, and
+  **virality compounds with notoriety** — a viral hit grows from ~49 fans at
+  infamy 50 to ~71 at infamy 95. Many events also **reframe by reputation**: the
+  same clip is "Critics Share the Clip" when you're acclaimed and "You're a Meme
+  Now" when you're a trainwreck. Measured over full tours: an all-S run earns
+  ~361 fans (mostly at gigs), while an all-F run earns ~151 — *entirely from the
+  road*, since a bombing band converts zero fans on stage. Mastery still wins, but
+  infamy is a real path. The worst place to be is the middle: an all-C run earns
+  only ~71, too good to go viral and too bad to build cred.
+- **Road-event catalog:** 134 authored events across 14 categories (van trouble,
+  law, food, weather, fans, industry, money, roadside, band drama, absurd, plus
+  infamy-virality, acclaim, after-bomb and after-banger sets), each tagged with the
+  situations it fits — broke, flush, low morale, hot, infamous, fresh off a bomb or
+  a banger. With reputation reframings and three magnitude tiers that's roughly
+  **420 distinct experienced outcomes**, and the pool responds to how your last gig
+  actually went.
+- **Route choice at every junction (prototype):** leaving a stop no longer drops
+  you straight onto one road — you pick from a **3-way fork**, each road a
+  different gamble. The Interstate is always offered as the safe baseline; two
+  others are drawn from a pool (Scenic, Shortcut, Coastal, Backroads). Each route
+  has a guaranteed effect shown up front (e.g. Scenic +6 morale, Shortcut +$50,
+  Coastal +9 morale/−$20), a "surprises" risk meter, and its own bias over which
+  road events tend to fire — the Shortcut has a ~37% chance of a van breakdown,
+  the Scenic road skews kind, the Interstate is quiet. This turns travel from a
+  cutscene into a real decision layer: a morale-starved run wants the Coastal
+  road, a cash-strapped one is tempted by the Shortcut gamble. (This is Tier 1 of
+  the travel redesign; van-as-resource and opt-in micro-driving are future tiers.)
 - **Travel interstitial + road events:** between stops, a GBA-style pixel-art
   screen shows your van driving a neon highway (parallax scenery, bobbing van,
   spinning wheels) with a route ribbon tracking progress to the next stop. About

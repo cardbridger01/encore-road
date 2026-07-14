@@ -126,19 +126,42 @@ const PERKS = [
   { id: "secondwind", name: "Second Wind",      emoji: "🌬️", desc: "Once per gig, a dying crowd revives at 25.",          mods: { reviveOnce: true } },
   { id: "fanclub",    name: "Fan Club",         emoji: "🎗️", desc: "Every gig earns +6 fans flat, any grade.",            mods: { flatFansPerGig: 6 } },
   { id: "perfect",    name: "Perfect Pitch",    emoji: "✨", desc: "Perfect hits pump +1 extra crowd.",                    mods: { perfectCrowdBonus: 1 } },
+
+  // ---- reputation / infamy path ----
+  { id: "publicist",  name: "Publicist",        emoji: "📢", desc: "Each drive, your infamy quietly converts to new fans.", mods: { infamyToFans: 0.22 } },
+  { id: "methodactor",name: "Method Actor",     emoji: "🎭", desc: "Infamy fades far more slowly. Live the character.",     mods: { infamySticky: true } },
+  { id: "damagectrl", name: "Damage Control",   emoji: "🧯", desc: "Bombed gigs cost less morale and less cred.",           mods: { damageControl: true } },
+  { id: "tabloid",    name: "Tabloid Darling",  emoji: "🗞️", desc: "Viral 'trainwreck' road events pay 50% more.",         mods: { infamyEventBonus: 1.5 } },
+  { id: "comeback",   name: "Comeback Kid",     emoji: "🔥", desc: "After a bombed gig, start the next with +12 crowd.",     mods: { afterBombCrowd: 12 } },
+  { id: "cult",       name: "Cult Leader",      emoji: "🕯️", desc: "A steady trickle of true believers each drive.",        mods: { infamyToFans: 0.18, flatFansPerGig: 3 } },
+
+  // ---- more economy / rhythm variety ----
+  { id: "megamerch",  name: "Merch Empire",     emoji: "🧢", desc: "Door-split gigs pay another 10%.",                      mods: { doorMult: 1.10 } },
+  { id: "streetteam", name: "Street Team",      emoji: "📌", desc: "Fanbase pulls another 10% attendance.",                 mods: { fanPullMult: 1.10 } },
+  { id: "metronome",  name: "Inner Metronome",  emoji: "⏱️", desc: "Hit windows are another 6% more forgiving.",            mods: { hitWindowMult: 1.06 } },
+  { id: "hypeman",    name: "Hype Man",         emoji: "🙌", desc: "Start every gig with +6 more crowd.",                    mods: { crowdStartBonus: 6 } },
+  { id: "closer",     name: "Big Closer",       emoji: "🎬", desc: "Gig scores boosted another 10%.",                       mods: { scoreMult: 1.10 } },
+  { id: "converter",  name: "True Believers",   emoji: "😇", desc: "Convert another 15% of the crowd into fans.",           mods: { fanConvMult: 1.15 } },
+  { id: "roadwarrior",name: "Road Warrior",     emoji: "🛞", desc: "Driving overnight costs 8 less morale.",                mods: { moraleDriveReduction: 8 } },
+  { id: "accountant", name: "Shrewd Accountant",emoji: "🧮", desc: "Base costs each stop are another $25 lower.",           mods: { costReduction: 25 } },
+  { id: "scalper",    name: "Dynamic Pricing",  emoji: "🏷️", desc: "Ticket price is another $4 higher.",                    mods: { ticketBonus: 4 } },
+  { id: "zen",        name: "Tour Zen",         emoji: "🧘", desc: "Morale never drops below 40.",                          mods: { moraleFloor: 40 } },
+  { id: "diehards",   name: "Die-Hards",        emoji: "🤘", desc: "Every gig earns +8 fans flat, any grade.",              mods: { flatFansPerGig: 8 } },
 ];
 
 // combine rules by modifier key
-const MULT_KEYS = ["hitWindowMult", "missDrainMult", "scoreMult", "doorMult", "guaranteeMult", "fanConvMult", "promoCostMult", "fanPullMult", "highGradeFanBonus"];
-const ADD_KEYS = ["crowdStartBonus", "perfectCrowdBonus", "loveBonus", "moraleRestBonus", "moraleDriveReduction", "costReduction", "ticketBonus", "flatFansPerGig"];
+const MULT_KEYS = ["hitWindowMult", "missDrainMult", "scoreMult", "doorMult", "guaranteeMult", "fanConvMult", "promoCostMult", "fanPullMult", "highGradeFanBonus", "infamyEventBonus"];
+const ADD_KEYS = ["crowdStartBonus", "perfectCrowdBonus", "loveBonus", "moraleRestBonus", "moraleDriveReduction", "costReduction", "ticketBonus", "flatFansPerGig", "infamyToFans", "afterBombCrowd"];
 
 function aggregatePerks(ownedIds) {
   const m = {
     hitWindowMult: 1, missDrainMult: 1, scoreMult: 1, doorMult: 1, guaranteeMult: 1,
-    fanConvMult: 1, promoCostMult: 1, fanPullMult: 1, highGradeFanBonus: 1,
+    fanConvMult: 1, promoCostMult: 1, fanPullMult: 1, highGradeFanBonus: 1, infamyEventBonus: 1,
     crowdStartBonus: 0, perfectCrowdBonus: 0, loveBonus: 0, moraleRestBonus: 0,
     moraleDriveReduction: 0, costReduction: 0, ticketBonus: 0, flatFansPerGig: 0,
+    infamyToFans: 0, afterBombCrowd: 0,
     hatePenaltyReduction: 0, moraleFloor: 0, reviveOnce: false,
+    infamySticky: false, damageControl: false,
   };
   for (const id of ownedIds) {
     const perk = PERKS.find((p) => p.id === id);
@@ -148,7 +171,7 @@ function aggregatePerks(ownedIds) {
       else if (ADD_KEYS.includes(k)) m[k] += v;
       else if (k === "hatePenaltyReduction") m[k] = 1 - (1 - m[k]) * (1 - v); // stack toward 1, never over
       else if (k === "moraleFloor") m[k] = Math.max(m[k], v);
-      else if (k === "reviveOnce") m[k] = m[k] || v;
+      else if (k === "reviveOnce" || k === "infamySticky" || k === "damageControl") m[k] = m[k] || v;
     }
   }
   return m;
@@ -441,7 +464,7 @@ function Calibration({ onDone, onSkip }) {
 }
 
 /* ============================ GIG SCENE ============================ */
-function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, onDone }) {
+function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, onDone }) {
   const canvasRef = useRef(null);
   const stateRef = useRef(null);
   const padsRef = useRef(null);
@@ -498,7 +521,9 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, onDone }) {
     const synth = makeSynth(ctx);
     const chart = buildChart(song, tier, seed, md);
     const t0 = ctx.currentTime + 3.2; // countdown
-    const startCrowd = Math.min(100, md.crowdStart + (pm.crowdStartBonus || 0));
+    // Comeback Kid: a bombed last gig means the room is rooting for you tonight
+    const comebackBonus = afterBomb ? (pm.afterBombCrowd || 0) : 0;
+    const startCrowd = Math.min(100, md.crowdStart + (pm.crowdStartBonus || 0) + comebackBonus);
     const S = {
       ctx, synth, chart, t0, audioIdx: 0, started: false, finished: false,
       score: 0, combo: 0, maxCombo: 0, crowd: startCrowd, pts: 0, total: 0,
@@ -1080,26 +1105,405 @@ const SCENES = {
   storm(g, W, H, t) { rect(g, 0, 0, W, H, "#161022"); rect(g, 0, 0, W, H * 0.5, "#241830"); ground(g, W, H);
     drawVan(g, 96, H - 34, 3, t);
     for (let i = 0; i < 40; i++) { const rx = (i * 37 + t * 240) % W, ry = (i * 53 + t * 300) % H; rect(g, rx, ry, 1, 6, PX.rain); } },
+  // a phone/screen showing a viral clip — used for virality & press
+  meme(g, W, H, t) { bgNight(g, W, H, t); ground(g, W, H); drawVan(g, 30, H - 34, 2, t);
+    const px = 120, py = 30, pw = 60, ph = 96;
+    rect(g, px - 3, py - 3, pw + 6, ph + 6, "#0c0c11"); rect(g, px, py, pw, ph, "#3d2352"); // phone
+    rect(g, px + 6, py + 8, pw - 12, 40, "#1c1330");                                        // screen
+    for (let i = 0; i < 5; i++) rect(g, px + 8 + i * 9, py + 20 + Math.sin(t * 4 + i) * 6, 6, 12, i % 2 ? PX.neon1 : PX.neon2); // "clip"
+    const hearts = Math.floor(t * 3) % 3; for (let i = 0; i <= hearts; i++) rect(g, px + 10 + i * 14, py + ph - 22, 6, 6, PX.van);
+    rect(g, px + 8, py + ph - 12, pw - 16, 4, PX.stripe); },
+  club(g, W, H, t) { bgNight(g, W, H, t);
+    rect(g, 16, H - 84, 80, 50, "#2a2438"); rect(g, 22, H - 96, 68, 14, "#1c1330");   // venue + marquee
+    for (let i = 0; i < 8; i++) rect(g, 26 + i * 8, H - 93, 4, 8, (Math.floor(t * 4) + i) % 2 ? PX.neon2 : PX.neon1);
+    rect(g, 44, H - 62, 24, 28, "#100b18"); // door
+    ground(g, W, H); drawVan(g, 130, H - 34, 3, t); },
+  motel(g, W, H, t) { bgNight(g, W, H, t);
+    rect(g, 14, H - 70, 92, 36, "#2a2438");                                            // low motel block
+    for (let i = 0; i < 5; i++) rect(g, 20 + i * 18, H - 62, 12, 16, i === 2 ? PX.sign : "#1c1330");
+    rect(g, 100, H - 96, 6, 30, "#3d2352"); rect(g, 92, H - 100, 22, 12, PX.neon1);    // vertical sign
+    ground(g, W, H); drawVan(g, 128, H - 34, 3, t); },
+  shop(g, W, H, t) { bgNight(g, W, H, t);
+    rect(g, 12, H - 74, 70, 40, "#2a2438"); rect(g, 18, H - 68, 26, 34, "#100b18"); rect(g, 48, H - 68, 26, 34, "#100b18"); // garage bays
+    rect(g, 16, H - 86, 62, 10, PX.sign);
+    ground(g, W, H); drawVan(g, 116, H - 34, 3, t * 0.3);
+    rect(g, 150, H - 44, 3, 10, "#cfc6b8"); rect(g, 149, H - 46, 5, 3, "#cfc6b8"); }, // lift/jack
 };
 
+/* ============================ REPUTATION ============================
+   Two axes track what the band is becoming, updated after every gig:
+     cred    — are you good?  rises on B+ gigs, decays slowly.
+     infamy  — are you a memorable disaster?  rises on C/F gigs, sticks longer.
+   Past a threshold, infamy flips from pure downside into VIRALITY: the road
+   throws "trainwreck" events that pay fans by spectacle, not skill. The event
+   pool is filtered/weighted by your current situation (broke, infamous, hot,
+   fresh-off-a-bomb...), and many events REFRAME by reputation band — the same
+   moment reads as acclaim when you're great and as a viral disaster when you're
+   bombing. That reframing is what makes a modest authored catalog feel endless.
+   ==================================================================== */
+const clamp100 = (n) => Math.max(0, Math.min(100, n));
+const INFAMY_VIRAL_AT = 50;   // infamy at which the virality event pool actually unlocks
+const REP_GAIN = { S: { c: 18, i: -8 }, A: { c: 12, i: -5 }, B: { c: 6, i: -2 }, C: { c: -4, i: 9 }, F: { c: -9, i: 18 } };
+
+function updateRep(cred, infamy, grade, mods = {}) {
+  const g = REP_GAIN[grade] || { c: 0, i: 0 };
+  let dC = g.c, dI = g.i;
+  if (mods.damageControl && (grade === "F" || grade === "C")) { dC *= 0.5; dI *= 0.75; }
+  return { cred: clamp100(cred + dC), infamy: clamp100(infamy + dI) };
+}
+function decayRep(cred, infamy, mods = {}) {
+  return { cred: cred * 0.95, infamy: infamy * (mods.infamySticky ? 0.985 : 0.95) };
+}
+function repState(cred, infamy) {
+  const viral = infamy >= INFAMY_VIRAL_AT;   // is the virality pool actually unlocked?
+  if (infamy >= 75) return { id: "notorious", label: "Notorious", blurb: "Famous for all the wrong reasons.", band: "infamous", viral };
+  if (infamy >= 50 && infamy >= cred) return { id: "trainwreck", label: "Viral Trainwreck", blurb: "They come to watch it burn.", band: "infamous", viral };
+  if (infamy >= 30 && infamy >= cred) return { id: "disaster", label: "Local Disaster", blurb: "A cautionary tale with a setlist.", band: "infamous", viral };
+  if (cred >= 80) return { id: "legendary", label: "Legendary", blurb: "Rooms sell out on your name alone.", band: "good", viral };
+  if (cred >= 55) return { id: "acclaimed", label: "Acclaimed", blurb: "The critics are paying attention.", band: "good", viral };
+  if (cred >= 30) return { id: "rising", label: "Rising", blurb: "Word is getting around.", band: "good", viral };
+  if (cred >= 12 || infamy >= 12) return { id: "known", label: "On the Radar", blurb: "People are starting to notice.", band: "neutral", viral };
+  return { id: "unknown", label: "Unknowns", blurb: "Nobody knows your name. Yet.", band: "neutral", viral };
+}
+function activeCtx({ lastGrade, cred, infamy, cash, morale }) {
+  const s = new Set(["any"]);
+  if (cred >= 55) s.add("hot");
+  if (infamy >= INFAMY_VIRAL_AT) s.add("infamous");
+  if (cash < 160) s.add("broke");
+  if (cash > 1600) s.add("flush");
+  if (morale < 35) s.add("lowMorale");
+  if (lastGrade === "C" || lastGrade === "F") s.add("afterBomb");
+  if (lastGrade === "S" || lastGrade === "A") s.add("afterBanger");
+  return s;
+}
+
+/* ============================ ROAD EVENTS ============================
+   E(id, cat, kind, scene, ctx, title, desc, effect, opts)
+   ctx: which situations this event fits (see activeCtx). "any" = always eligible.
+   opts.mech: van/mechanical (route bias interacts). opts.scale: magnitude varies.
+   opts.vInf / opts.vHot: reputation reframings (title/desc/effect overrides) used
+   when the band is currently infamous / acclaimed — this is the virality flip.
+   ==================================================================== */
+const E = (id, cat, kind, scene, ctx, title, desc, effect, opts = {}) =>
+  ({ id, cat, kind, scene, ctx, title, desc, effect, ...opts });
+
 const EVENTS = [
-  { id: "flat",    scene: "flat",   kind: "bad",  title: "Blowout on the Interstate", desc: "A tire lets go at 70mph. You limp to a shop and hand over the cash.", effect: { cash: -70 } },
-  { id: "diner",   scene: "food",   kind: "mix",  title: "All-Night Diner", desc: "Pancakes at 2am. Glorious — but the bathroom line eats the lead you had.", effect: { cash: -15, morale: 6 } },
-  { id: "radio",   scene: "crowd",  kind: "good", title: "Local Radio Spot", desc: "A college DJ spins your single on the overnight show. New ears tune in.", effect: { fans: 18 } },
-  { id: "speed",   scene: "cop",    kind: "bad",  title: "Speed Trap", desc: "Lights in the mirror outside some small town. The ticket stings.", effect: { cash: -55 } },
-  { id: "overlook",scene: "scenic", kind: "good", title: "Scenic Overlook", desc: "You pull over at a canyon rim at dawn. Nobody speaks. Everybody breathes.", effect: { morale: 8 } },
-  { id: "engine",  scene: "engine", kind: "bad",  title: "Engine Trouble", desc: "Steam from under the hood. A roadside mechanic fixes it and bleeds you dry.", effect: { cash: -90, morale: -4 } },
-  { id: "viral",   scene: "crowd",  kind: "good", title: "The Clip Goes Viral", desc: "Someone filmed last night's encore. By sunrise it's everywhere.", effect: { fans: 26 } },
-  { id: "lot",     scene: "crowd",  kind: "good", title: "Parking-Lot Set", desc: "You busk in a gas-station lot for gas money. A small crowd, a big lift.", effect: { fans: 12, morale: 4 } },
-  { id: "sushi",   scene: "food",   kind: "bad",  title: "Gas-Station Sushi", desc: "It seemed fine at the time. Regret sets in around mile 40.", effect: { morale: -8 } },
-  { id: "tips",    scene: "cash",   kind: "good", title: "Fuller Than You Thought", desc: "The tip jar had way more than you counted last night. Gas is on the band.", effect: { cash: 65 } },
-  { id: "storm",   scene: "storm",  kind: "bad",  title: "Thunderstorm", desc: "White-knuckle driving through a downpour. Everyone arrives frayed.", effect: { morale: -5 } },
-  { id: "roadie",  scene: "scenic", kind: "good", title: "Hitchhiking Roadie", desc: "You pick up a fan who knows how to coil cables and read a room. Good energy.", effect: { morale: 5 } },
+  // ---- mechanical / the van ----
+  E("flat", "mech", "bad", "flat", ["any"], "Blowout on the Interstate", "A tire lets go at 70. You limp to a shop and hand over the cash.", { cash: -70 }, { mech: 1, scale: 1 }),
+  E("engine", "mech", "bad", "engine", ["any"], "Engine Trouble", "Steam from under the hood. A roadside mechanic fixes it and bleeds you dry.", { cash: -90, morale: -4 }, { mech: 1, scale: 1 }),
+  E("belt", "mech", "bad", "engine", ["any"], "Snapped Serpentine Belt", "The dash lights up like a pinball machine. Two hours in a gravel lot.", { cash: -45, morale: -3 }, { mech: 1, scale: 1 }),
+  E("battery", "mech", "bad", "shop", ["any"], "Dead Battery", "Left the dome light on. A trucker jumps you for a handshake and a story.", { morale: -3 }, { mech: 1 }),
+  E("brakes", "mech", "bad", "shop", ["any"], "Grinding Brakes", "Metal on metal down a grade. You pay for pads and your nerves.", { cash: -60, morale: -4 }, { mech: 1, scale: 1 }),
+  E("overheat", "mech", "bad", "engine", ["any"], "Overheating", "Temp needle in the red. You crawl the last miles with the heater blasting.", { cash: -35, morale: -5 }, { mech: 1, scale: 1 }),
+  E("tuneup", "mech", "good", "shop", ["flush"], "Proper Tune-Up", "Flush enough to do it right for once. The van purrs; so does the band.", { cash: -80, morale: 8 }, {}),
+  E("mirror", "mech", "mix", "shop", ["any"], "Clipped a Mirror", "A gas-pump pillar takes your side mirror. Duct tape and a shrug.", { cash: -15 }, { mech: 1 }),
+
+  // ---- law / authority ----
+  E("speed", "law", "bad", "cop", ["any"], "Speed Trap", "Lights in the mirror outside some small town. The ticket stings.", { cash: -55 }, { scale: 1 }),
+  E("checkpoint", "law", "mix", "cop", ["any"], "Sobriety Checkpoint", "Everyone's clean, but the search burns an hour and the mood.", { morale: -4 }, {}),
+  E("parking", "law", "bad", "cop", ["any"], "Booted in a Tow Zone", "The load-in sign was 'implied,' the cop says. You pay to free the van.", { cash: -40 }, { scale: 1 }),
+  E("warning", "law", "good", "cop", ["any"], "Let Off With a Warning", "The trooper's kid is a fan. Autograph on the citation pad, no fine.", { fans: 8, morale: 4 }, {}),
+  E("noise", "law", "bad", "cop", ["afterBanger"], "Noise Complaint Follows You", "Last night ran hot. A cruiser 'escorts' you out of the county.", { morale: -3 }, {}),
+
+  // ---- food / health ----
+  E("diner", "food", "mix", "food", ["any"], "All-Night Diner", "Pancakes at 2am. Glorious — but the bathroom line eats your lead.", { cash: -15, morale: 6 }, { scale: 1 }),
+  E("sushi", "food", "bad", "food", ["any"], "Gas-Station Sushi", "It seemed fine at the time. Regret sets in around mile 40.", { morale: -8 }, { scale: 1 }),
+  E("bbq", "food", "good", "food", ["any"], "Roadside BBQ Shack", "A pitmaster feeds the whole band for a T-shirt. Spirits soar.", { morale: 9 }, {}),
+  E("foodpoison", "food", "bad", "food", ["lowMorale"], "Bad Clams, Worse Timing", "Half the band is green. The drive is very quiet and very tense.", { morale: -10 }, { scale: 1 }),
+  E("coffee", "food", "good", "food", ["any"], "Perfect Truck-Stop Coffee", "Somehow the best cup any of you have ever had. Small joys.", { morale: 4 }, {}),
+  E("energy", "food", "mix", "food", ["lowMorale"], "Case of Energy Drinks", "Wired and jittery. You make great time and feel terrible.", { morale: -3 }, {}),
+
+  // ---- weather / nature ----
+  E("storm", "weather", "bad", "storm", ["any"], "Thunderstorm", "White-knuckle driving through a downpour. Everyone arrives frayed.", { morale: -5 }, { scale: 1 }),
+  E("fog", "weather", "bad", "storm", ["any"], "Blinding Fog", "Twenty miles at twenty miles an hour. You lose the time and the nerve.", { morale: -3 }, {}),
+  E("sunrise", "weather", "good", "scenic", ["any"], "Sunrise Over the Plains", "The whole sky goes pink. For a minute nobody's tired at all.", { morale: 7 }, {}),
+  E("heatwave", "weather", "bad", "storm", ["any"], "AC Dies in a Heatwave", "Windows down, shirts off, tempers short. A rough, sweaty haul.", { morale: -6 }, { scale: 1 }),
+  E("snow", "weather", "mix", "storm", ["any"], "Surprise Snow Squall", "Beautiful and terrifying. You chain up and inch forward, awed.", { morale: 2, cash: -15 }, {}),
+  E("meteor", "weather", "good", "scenic", ["any"], "Meteor Shower", "You pull over and lie on the roof. Nobody says it, but it helps.", { morale: 8 }, {}),
+
+  // ---- fans / social (the good stuff) ----
+  E("radio", "fan", "good", "crowd", ["any"], "Local Radio Spot", "A college DJ spins your single on the overnight show. New ears tune in.", { fans: 18 }, { scale: 1 }),
+  E("lot", "fan", "good", "crowd", ["any"], "Parking-Lot Set", "You busk in a gas-station lot for gas money. A small crowd, a big lift.", { fans: 12, morale: 4 }, { scale: 1 }),
+  E("viral", "fan", "good", "meme", ["any"], "The Clip Goes Viral",
+    "Someone filmed last night's encore. By sunrise it's everywhere.", { fans: 26 },
+    { scale: 1,
+      vInf: { title: "You're a Meme Now", desc: "The clip is everywhere — because it's a disaster. They can't look away.", effect: { fans: 40 } },
+      vHot: { title: "Critics Share the Clip", desc: "A tastemaker reposts your encore. The right people are watching.", effect: { fans: 34 } } }),
+  E("streetteam", "fan", "good", "crowd", ["any"], "Street Team Shows Up", "Kids with your logo Sharpied on their jackets flyer the whole town.", { fans: 15 }, { scale: 1 }),
+  E("cover", "fan", "good", "crowd", ["any"], "A Cover Band Covers You", "Some bar act is playing your song. You've been covered. It's surreal.", { fans: 10, morale: 5 }, {}),
+  E("wedding", "fan", "mix", "crowd", ["broke"], "Wedding Gig Detour", "A desperate bride books you cash-in-hand. Not the vibe. Pays the gas.", { cash: 90, morale: -4 }, { scale: 1 }),
+  E("mailbag", "fan", "good", "crowd", ["any"], "Fan Mail Catches Up", "A stack of letters forwarded from home. Someone drew the whole band.", { morale: 6 }, {}),
+  E("hometown", "fan", "good", "crowd", ["hot"], "Hometown Heroes", "Word reached home base. They're proud, and they're buying tickets.", { fans: 22, morale: 5 }, { scale: 1 }),
+
+  // ---- industry / music biz ----
+  E("sync", "biz", "good", "cash", ["hot"], "Sync Placement", "A show licenses your track for a montage. Real money for once.", { cash: 140, fans: 10 }, { scale: 1 }),
+  E("label", "biz", "mix", "club", ["hot"], "A&R in the Booth", "A label scout catches the set. Flattering, non-committal, exhausting.", { fans: 14, morale: -2 }, {}),
+  E("manager", "biz", "mix", "club", ["any"], "Smooth-Talking Manager", "He promises the world for 20%. You politely, nervously decline.", { morale: -3 }, {}),
+  E("festival", "biz", "good", "crowd", ["hot"], "Festival Slot Opens Up", "A dropout means a mid-afternoon slot. Small stage, big exposure.", { fans: 30 }, { scale: 1 }),
+  E("merchdeal", "biz", "good", "cash", ["any"], "Merch Restock Bargain", "A shop overprinted someone else's shirts. You buy blanks cheap.", { cash: -25, fans: 6 }, {}),
+  E("payola", "biz", "bad", "cash", ["broke"], "Pay-to-Play Trap", "The 'promoter' wants a buy-on. You front it and learn a lesson.", { cash: -60 }, { scale: 1 }),
+
+  // ---- money / finance ----
+  E("tips", "money", "good", "cash", ["any"], "Fuller Than You Thought", "The tip jar had way more than you counted. Gas is on the band.", { cash: 65 }, { scale: 1 }),
+  E("atm", "money", "bad", "cash", ["any"], "Sketchy ATM Fee", "Only machine for 40 miles. It charges like it knows.", { cash: -12 }, {}),
+  E("busk", "money", "good", "crowd", ["broke"], "Busking Pays Off", "An hour on a corner and a hat full of crumpled fives. Enough for gas.", { cash: 45 }, { scale: 1 }),
+  E("wallet", "money", "bad", "cash", ["any"], "Lost the Gas Money", "A pocket with a hole. The whole float, gone somewhere on I-80.", { cash: -50 }, { scale: 1 }),
+  E("scratch", "money", "good", "cash", ["broke"], "Lucky Scratch Ticket", "Bought on a whim with the last dollar. It hits. Barely, but it hits.", { cash: 80 }, { scale: 1 }),
+  E("loanshark", "money", "mix", "cash", ["broke"], "A Guy Named Sal", "He'll spot you cash tonight. You do not think about tomorrow.", { cash: 120, morale: -6 }, { scale: 1 }),
+
+  // ---- roadside / random ----
+  E("roadie", "road", "good", "scenic", ["any"], "Hitchhiking Roadie", "You pick up a fan who can coil cables and read a room. Good energy.", { morale: 5 }, {}),
+  E("overlook", "road", "good", "scenic", ["any"], "Scenic Overlook", "You pull over at a canyon rim at dawn. Nobody speaks. Everybody breathes.", { morale: 8 }, { scale: 1 }),
+  E("worldball", "road", "good", "scenic", ["any"], "World's Largest Ball of Twine", "Dumb, glorious, exactly what the trip needed. Photos for days.", { morale: 6 }, {}),
+  E("detour", "road", "bad", "storm", ["any"], "Endless Construction Detour", "Orange cones to the horizon. You lose two hours and your minds.", { morale: -4 }, {}),
+  E("hitcher", "road", "mix", "scenic", ["any"], "Chatty Hitchhiker", "Great stories, questionable smell. The miles fly; the van reeks.", { morale: 2 }, {}),
+  E("breakdown_help", "road", "good", "scenic", ["lowMorale"], "A Stranger Helps", "You help push a stalled car; the driver knows a shortcut and a diner.", { morale: 5, cash: 10 }, {}),
+  E("photo", "road", "good", "scenic", ["any"], "Perfect Band Photo", "Golden hour, a chain-link fence, a lucky shot. That's the album cover.", { morale: 5, fans: 6 }, {}),
+
+  // ---- band drama / morale ----
+  E("argument", "band", "bad", "motel", ["lowMorale"], "The Van Argument", "Six hours, one topic, no winner. Everyone's raw by the state line.", { morale: -7 }, { scale: 1 }),
+  E("motel", "band", "good", "motel", ["any"], "Cheap Motel, Good Pool", "A dive with a working pool and free waffles. Somehow, restorative.", { morale: 7, cash: -30 }, {}),
+  E("jam", "band", "good", "motel", ["any"], "Parking-Lot Jam", "An unplugged jam under a sodium light. You remember why you do this.", { morale: 8 }, {}),
+  E("quit", "band", "bad", "motel", ["lowMorale"], "Someone Threatens to Quit", "It blows over by morning. It always does. Mostly.", { morale: -5, fans: -4 }, {}),
+  E("birthday", "band", "good", "motel", ["any"], "Surprise Birthday", "Gas-station cake, one candle, off-key singing. A good night.", { morale: 9 }, {}),
+
+  // ---- absurd / weird ----
+  E("ufo", "weird", "mix", "storm", ["any"], "Lights in the Sky", "Probably a drone. Probably. Nobody sleeps; everybody's wired.", { morale: 3 }, {}),
+  E("cult", "weird", "mix", "scenic", ["any"], "Roadside 'Congregation'", "They love your van's vibe and offer 'membership.' You floor it, laughing.", { morale: 4 }, {}),
+  E("goat", "weird", "good", "scenic", ["any"], "A Goat in the Road", "You stop for a goat. It stares into your soul. You feel changed.", { morale: 5 }, {}),
+  E("wrongturn", "weird", "mix", "storm", ["any"], "Gloriously Wrong Turn", "Ninety minutes lost leads to the best taco stand in America.", { morale: 6, cash: -18 }, {}),
+
+  // ---- INFAMY: virality by spectacle (only when infamous) ----
+  E("tabloid", "infamy", "good", "meme", ["infamous"], "Tabloid Pays for the Story", "A gossip site buys the 'worst band alive' angle. Cash is cash.", { cash: 120, fans: 20 }, { scale: 1, viral: 1 }),
+  E("hatewatch", "infamy", "good", "meme", ["infamous"], "Hate-Watch Army", "They're streaming your sets to laugh. The play count doesn't care why.", { fans: 45 }, { scale: 1, viral: 1 }),
+  E("meltdownmeme", "infamy", "good", "meme", ["infamous"], "The Meltdown Is a Meme", "Your onstage disaster is a reaction GIF now. Infamy is a kind of fame.", { fans: 38, morale: -3 }, { scale: 1, viral: 1 }),
+  E("antifans", "infamy", "good", "crowd", ["infamous"], "Anti-Fans Buy Tickets", "People come specifically to heckle. They still pay at the door.", { cash: 70, fans: 15 }, { scale: 1, viral: 1 }),
+  E("worstlist", "infamy", "good", "meme", ["infamous"], "'Worst Shows of the Year'", "A blogger ranks you #1. The link goes everywhere. So does your name.", { fans: 30 }, { viral: 1 }),
+  E("sponsorchaos", "infamy", "mix", "cash", ["infamous"], "Chaos Energy Sponsorship", "An energy drink wants the trainwreck brand. Free product, weird looks.", { cash: 60, morale: -4 }, { viral: 1 }),
+  E("challenge", "infamy", "good", "meme", ["infamous"], "The Booing Challenge", "Fans film themselves booing along. It's a whole trend. It's yours.", { fans: 42 }, { scale: 1, viral: 1 }),
+  E("cultfollow", "infamy", "good", "crowd", ["infamous"], "An Actual Cult Following", "The irony fans curdled into real devotion. They'd follow you anywhere.", { fans: 28, morale: 6 }, { scale: 1, viral: 1 }),
+
+  // ---- ACCLAIM: when you're genuinely hot ----
+  E("review", "acclaim", "good", "meme", ["hot"], "Glowing Review", "A real critic uses the word 'vital.' You reread it at every stop light.", { fans: 24, morale: 8 }, { scale: 1 }),
+  E("openslot", "acclaim", "good", "club", ["hot"], "Opening-Slot Offer", "A bigger act wants you on the bill. Their crowd becomes half yours.", { fans: 40 }, { scale: 1 }),
+  E("bidwar", "acclaim", "good", "cash", ["hot"], "Two Promoters, One Night", "They're bidding for you. You've never felt so wanted or so tired.", { cash: 130 }, { scale: 1 }),
+  E("playlist", "acclaim", "good", "meme", ["hot"], "Added to The Playlist", "An editorial playlist picks you up. The streams do not stop.", { fans: 35 }, { scale: 1 }),
+
+  // ---- AFTER A BOMB (recent C/F) ----
+  E("regroup", "afterbomb", "good", "motel", ["afterBomb"], "Honest Band Meeting", "You talk about the bad set instead of drinking about it. It helps.", { morale: 8 }, {}),
+  E("refund", "afterbomb", "bad", "cash", ["afterBomb"], "Refund Demands", "A few from last night want their money back. The promoter obliges — with yours.", { cash: -40 }, { scale: 1 }),
+  E("clipbad", "afterbomb", "mix", "meme", ["afterBomb"], "The Bad Set Got Filmed", "It's online. It's rough. A few people think the jankiness is 'punk.'", { fans: 8, morale: -4 }, { vInf: { title: "The Bad Set Blows Up", desc: "Turns out people love a disaster. The clip outperforms your good ones.", effect: { fans: 34 } } }),
+
+  // ---- AFTER A BANGER (recent S/A) ----
+  E("encoredemand", "afterbanger", "good", "crowd", ["afterBanger"], "They Chased the Van", "Fans followed you to the gas station to say last night mattered.", { fans: 16, morale: 6 }, { scale: 1 }),
+  E("guestlist", "afterbanger", "good", "club", ["afterBanger"], "Word Traveled Ahead", "The next town already heard. Advance ticket sales are climbing.", { fans: 20 }, { scale: 1 }),
+
+  // ---- batch two: more van/mechanical ----
+  E("alternator", "mech", "bad", "shop", ["any"], "Alternator Quits", "Everything electric dies one by one. You coast into a lot on faith.", { cash: -65, morale: -3 }, { mech: 1, scale: 1 }),
+  E("gascap", "mech", "mix", "shop", ["broke"], "Siphoned Gas Tank", "Someone helped themselves overnight. At least they left the cap.", { cash: -30 }, { mech: 1 }),
+  E("newtires", "mech", "good", "shop", ["flush"], "Fresh Set of Tires", "You finally replace the bald ones. The van tracks straight and true.", { cash: -110, morale: 6 }, { scale: 1 }),
+  E("gremlin", "mech", "mix", "engine", ["any"], "Phantom Rattle", "A rattle nobody can find. You learn to live with it. It becomes family.", { morale: -2 }, { mech: 1 }),
+  E("jumpstart", "mech", "good", "shop", ["lowMorale"], "A Trucker Jumps You", "Big rig, bigger heart. Coffee, a jump, and forty minutes of good advice.", { morale: 6 }, {}),
+
+  // ---- more law ----
+  E("impound", "law", "bad", "cop", ["broke"], "Van Nearly Impounded", "Expired tags in the wrong county. You talk fast and pay faster.", { cash: -75 }, { scale: 1 }),
+  E("escort", "law", "good", "cop", ["hot"], "Police Escort", "A sheriff who loves the record clears your lane to the venue. Surreal.", { morale: 5, fans: 6 }, {}),
+  E("busk_ticket", "law", "bad", "cop", ["broke"], "Ticketed for Busking", "No permit, says the officer. The corner that fed you now costs you.", { cash: -25 }, {}),
+
+  // ---- more food/health ----
+  E("potluck", "food", "good", "food", ["lowMorale"], "Fan Potluck", "A local fan's family feeds the whole band a home-cooked meal. Tears, maybe.", { morale: 10 }, {}),
+  E("hotdog", "food", "mix", "food", ["broke"], "Two-for-One Hot Dogs", "Dinner is a gas-station special. Cheap, filling, deeply regrettable.", { cash: -6, morale: -2 }, {}),
+  E("farmstand", "food", "good", "scenic", ["any"], "Roadside Farm Stand", "Peaches the size of softballs. The van smells incredible for once.", { morale: 5 }, {}),
+
+  // ---- more weather ----
+  E("rainbow", "weather", "good", "scenic", ["afterBomb"], "Double Rainbow", "After the storm, the sky shows off. It feels like a sign. It isn't. Still.", { morale: 7 }, {}),
+  E("windstorm", "weather", "bad", "storm", ["any"], "Crosswind Battering", "The van gets shoved lane to lane for an hour. White knuckles all around.", { morale: -4 }, { scale: 1 }),
+  E("dust", "weather", "bad", "storm", ["any"], "Dust Storm", "Visibility to zero. You pull over and wait it out, coughing and quiet.", { morale: -3, cash: -10 }, {}),
+
+  // ---- more fans/social with reframings ----
+  E("busker_duet", "fan", "good", "crowd", ["any"], "Impromptu Street Duet", "You join a busker for one song. A crowd forms. Phones come out.", { fans: 14, morale: 4 }, { scale: 1,
+    vInf: { title: "You Ruin a Busker's Set", desc: "You jump in uninvited and it's a disaster — which is, of course, content.", effect: { fans: 26 } } }),
+  E("mural", "fan", "good", "crowd", ["hot"], "Someone Painted a Mural", "Your logo, twenty feet tall, on a brick wall downtown. You're somebody here.", { fans: 20, morale: 6 }, { scale: 1 }),
+  E("fanart", "fan", "good", "crowd", ["any"], "Flood of Fan Art", "The tag is full of drawings of the band. Some are good. All are kind.", { morale: 7, fans: 5 }, {}),
+  E("radiorequest", "fan", "good", "meme", ["any"], "Most-Requested Track", "A station says you're their #1 call-in. The DJ sounds baffled and delighted.", { fans: 22 }, { scale: 1,
+    vInf: { title: "Requested 'Ironically'", desc: "The call-ins are a bit. The spins are real. The chart doesn't editorialize.", effect: { fans: 30 } } }),
+  E("blooddrive", "fan", "good", "crowd", ["any"], "You Headline a Blood Drive", "A charity set for zero money and infinite goodwill. Worth it.", { fans: 12, morale: 6 }, {}),
+
+  // ---- more industry ----
+  E("distro", "biz", "good", "cash", ["hot"], "Distro Deal", "A small distributor wants your vinyl in real shops. Modest check, big feeling.", { cash: 90, fans: 8 }, { scale: 1 }),
+  E("producer", "biz", "mix", "club", ["hot"], "A Producer's Card", "Someone with real credits slips you a number. You'll definitely call. Maybe.", { morale: 4 }, {}),
+  E("bootleg", "biz", "mix", "meme", ["any"], "Bootleggers Found You", "Someone's selling unauthorized shirts. Annoying — but it means you matter.", { fans: 10, cash: -15 }, {}),
+  E("sponsordrop", "biz", "bad", "cash", ["afterBomb"], "Sponsor Gets Cold Feet", "A brand that was 'interested' stops returning calls after the bad night.", { cash: -20, morale: -3 }, {}),
+
+  // ---- more money ----
+  E("crowdfund", "money", "good", "cash", ["broke"], "Fans Pass the Hat", "Word got out you were broke. An online tip jar fills up overnight.", { cash: 100, morale: 8 }, { scale: 1 }),
+  E("gaswar", "money", "good", "cash", ["any"], "Local Gas War", "Two stations undercutting each other. You fill up for almost nothing.", { cash: 30 }, {}),
+  E("bettips", "money", "mix", "cash", ["flush"], "Backstage Poker", "Feeling flush, you sit in on the promoter's game. It goes... about even.", { cash: -10 }, { scale: 1 }),
+  E("busted_amp", "money", "bad", "cash", ["any"], "Amp Blows a Tube", "It dies mid-soundcheck. Replacement tubes aren't cheap or close.", { cash: -45 }, { scale: 1 }),
+
+  // ---- more roadside ----
+  E("diner_jukebox", "road", "good", "food", ["any"], "Your Song on a Jukebox", "You feed it a quarter and there you are, between Patsy Cline and Journey.", { morale: 8 }, {}),
+  E("ghosttown", "road", "mix", "scenic", ["any"], "A Real Ghost Town", "You wander an abandoned main street at dusk. Eerie, gorgeous, a little sad.", { morale: 3 }, {}),
+  E("hotspring", "road", "good", "scenic", ["lowMorale"], "Hidden Hot Spring", "A local tips you off. An hour of steam and stars resets the whole band.", { morale: 11 }, {}),
+  E("rodeo", "road", "good", "crowd", ["any"], "You Stumble Into a Rodeo", "They let you play the beer tent. Cowboys are a surprisingly great crowd.", { fans: 14, cash: 20 }, { scale: 1 }),
+
+  // ---- more band drama ----
+  E("reconcile", "band", "good", "motel", ["lowMorale"], "The Air Clears", "Whatever's been simmering finally gets said, and then it's fine. Better, even.", { morale: 9 }, {}),
+  E("newsong", "band", "good", "motel", ["any"], "A New Song Arrives", "It falls out of the air in a motel parking lot at 3am. It's good. It's really good.", { morale: 8, fans: 4 }, {}),
+  E("sick", "band", "bad", "motel", ["any"], "Someone's Getting Sick", "A scratchy throat becomes a fever. You reshuffle parts and push on.", { morale: -6 }, { scale: 1 }),
+
+  // ---- more absurd ----
+  E("bigfoot", "weird", "good", "scenic", ["any"], "Definitely Bigfoot", "Something crossed the road up ahead. You will argue about it for years.", { morale: 6, fans: 3 }, {}),
+  E("timezone", "weird", "mix", "storm", ["any"], "Lost an Hour to a Time Zone", "You cross a line on the map and the clock lies to you. Doors in ten minutes?!", { morale: -3 }, {}),
+  E("radio_static", "weird", "mix", "storm", ["lowMorale"], "A Voice on the Static", "Between stations, a number station counts in a language nobody knows. Spooky miles.", { morale: -2 }, {}),
+
+  // ---- more INFAMY virality ----
+  E("roast", "infamy", "good", "meme", ["infamous"], "A Comedian Roasts You", "A late-night host does three minutes on your disaster tour. Ratings are ratings.", { fans: 44 }, { scale: 1, viral: 1 }),
+  E("reactvid", "infamy", "good", "meme", ["infamous"], "Reaction-Video Fodder", "Every 'this is the worst band' video sends a few curious souls your way.", { fans: 32 }, { scale: 1, viral: 1 }),
+  E("darkfans", "infamy", "mix", "crowd", ["infamous"], "The Wrong Kind of Devoted", "A cluster of fans loves you *because* it's chaos. Intense. A little scary.", { fans: 24, morale: -3 }, { viral: 1 }),
+  E("gigposter", "infamy", "good", "meme", ["infamous"], "'Legendarily Bad' Poster", "A design blog features a poster mocking your set. It's beautiful. It's everywhere.", { fans: 26 }, { viral: 1 }),
+  E("dare", "infamy", "good", "crowd", ["infamous"], "People Dare Friends to Come", "Attendance as a challenge. 'Bet you can't sit through the whole thing.' They can't. They pay.", { cash: 55, fans: 18 }, { scale: 1, viral: 1 }),
+  E("nft", "infamy", "mix", "cash", ["infamous"], "A Weird Guy Wants the Rights", "Someone wants to mint your worst moment. The money's real; the vibe is not.", { cash: 90, morale: -5 }, { viral: 1 }),
+
+  // ---- more ACCLAIM ----
+  E("npr", "acclaim", "good", "meme", ["hot"], "Public-Radio Session", "A tasteful, hushed on-air session. Suddenly your parents' friends are fans.", { fans: 28, morale: 6 }, { scale: 1 }),
+  E("bestof", "acclaim", "good", "meme", ["hot"], "'Best New Act' List", "A respected list includes you. You screenshot it eleven times.", { fans: 30 }, { scale: 1 }),
+  E("residency", "acclaim", "good", "club", ["hot"], "Residency Offer", "A cool room wants you monthly. Stability! A word you'd forgotten.", { cash: 60, fans: 16 }, {}),
+  E("mentor", "acclaim", "good", "club", ["hot"], "A Legend Says Hi", "An artist you idolize catches the set and nods once. You'll ride that for a year.", { morale: 12 }, {}),
+
+  // ---- more broke-specific ----
+  E("pawn", "money", "mix", "cash", ["broke"], "Pawn the Backup Guitar", "Rent for the road. You'll buy it back. You tell yourself you'll buy it back.", { cash: 85, morale: -6 }, { scale: 1 }),
+  E("sleep_van", "band", "mix", "motel", ["broke"], "Everyone Sleeps in the Van", "No motel tonight. Cramped, cold, weirdly bonding. You save the cash.", { cash: 0, morale: -3 }, {}),
+  E("dumpster", "money", "mix", "food", ["broke"], "Bakery Closing-Time Haul", "The kind clerk gives you the day's unsold bread. Feast of champions.", { morale: 4 }, {}),
+
+  // ---- more flush-specific ----
+  E("upgrade_gear", "biz", "good", "cash", ["flush"], "Finally, New Gear", "You buy the pedal you've wanted for a year. It sounds like money well spent.", { cash: -120, morale: 8, fans: 4 }, {}),
+  E("hire_help", "biz", "good", "club", ["flush"], "Hire a Merch Kid", "Someone to run the table means you actually rest. Worth every dollar.", { cash: -60, morale: 7 }, {}),
+
+  // ---- more after-bomb / after-banger ----
+  E("pep_talk", "afterbomb", "good", "motel", ["afterBomb"], "The Pep Talk", "The oldest member says the thing everyone needed to hear. You believe it, mostly.", { morale: 9 }, {}),
+  E("walkout_refund", "afterbomb", "bad", "cash", ["afterBomb"], "The Walkout", "Enough people left early that the club claws back part of the guarantee.", { cash: -35 }, { scale: 1 }),
+  E("secondchance", "afterbanger", "good", "club", ["afterBanger"], "Promoter Rebooks You On the Spot", "Last night was that good. He wants you back, better slot, more money.", { cash: 70, fans: 12 }, { scale: 1 }),
+  E("radio_after", "afterbanger", "good", "meme", ["afterBanger"], "The Set Gets Bootlegged (Nicely)", "A fan's clean recording of the great set circulates. Free, glowing advertising.", { fans: 24 }, { scale: 1 }),
 ];
 
-function rollEvent() {
-  if (Math.random() < 0.4) return null;           // ~60% of drives have an event
-  return EVENTS[(Math.random() * EVENTS.length) | 0];
+/* ============================ ROUTES ============================
+   Between stops, the player picks a road. Each route is a gamble with its own
+   guaranteed effect (applied on arrival), how eventful it is (eventChance), and
+   a bias over which KIND of road event tends to fire. This is the layer that
+   turns travel from a cutscene into a decision. Interstate is always offered as
+   the safe baseline; two others are drawn from the pool for variety.
+   ==================================================================== */
+const ROUTES = [
+  { id: "interstate", name: "The Interstate", icon: "straight", accent: "#57E0E8", risk: "low",
+    blurb: "Fast, flat, forgettable. Not much happens out here.",
+    guaranteed: {}, eventChance: 0.35, bias: { good: 1, bad: 1, mix: 1 }, mild: true, always: true },
+  { id: "scenic", name: "Scenic Route", icon: "winding", accent: "#8CFF9E", risk: "med",
+    blurb: "Longer and prettier. The band unwinds — but the road's alive.",
+    guaranteed: { morale: 6 }, eventChance: 0.75, bias: { good: 3, bad: 1, mix: 2 } },
+  { id: "shortcut", name: "The Shortcut", icon: "rough", accent: "#FF3D7F", risk: "high",
+    blurb: "Cuts miles and saves on gas — if the van holds together.",
+    guaranteed: { cash: 50 }, eventChance: 0.7, bias: { good: 1, bad: 3, mix: 1 }, mechBoost: 3 },
+  { id: "coastal", name: "Coastal Highway", icon: "winding", accent: "#6DB3FF", risk: "med",
+    blurb: "Windows down, salt air. Spirits soar; the tolls sting a little.",
+    guaranteed: { morale: 9, cash: -20 }, eventChance: 0.6, bias: { good: 4, bad: 1, mix: 1 } },
+  { id: "backroad", name: "Backroads", icon: "rough", accent: "#FFB03A", risk: "high",
+    blurb: "No map, no signs. Anything can happen out here — and usually does.",
+    guaranteed: {}, eventChance: 0.9, bias: { good: 1, bad: 1, mix: 1 } },
+];
+
+// Interstate + 2 random others, for a 3-way fork with a guaranteed safe option.
+function pickRoutes() {
+  const others = ROUTES.filter((r) => !r.always).map((r) => r.id);
+  for (let i = others.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [others[i], others[j]] = [others[j], others[i]]; }
+  return ["interstate", others[0], others[1]].map((id) => ROUTES.find((r) => r.id === id));
+}
+
+// Scale an effect's numbers by a magnitude multiplier (keeps sign, min |1|).
+function scaleEffect(effect, m) {
+  const out = {};
+  for (const [k, v] of Object.entries(effect)) {
+    const s = Math.round(v * m);
+    out[k] = s === 0 ? (v > 0 ? 1 : -1) : s;
+  }
+  return out;
+}
+// Merge a reputation variant (title/desc/effect) over the base event.
+function applyVariant(ev, v) {
+  return { ...ev, title: v.title ?? ev.title, desc: v.desc ?? ev.desc, effect: v.effect ?? ev.effect, viral: v.viral ?? ev.viral };
+}
+
+// Route- AND situation-aware event roll. ctx carries the band's current state so
+// the pool responds to how you're doing and reframes by reputation.
+function rollRouteEvent(route, ctx = {}) {
+  if (Math.random() > route.eventChance) return null;
+  const active = activeCtx(ctx);
+  const inf = ctx.infamy || 0;
+  const pool = EVENTS.filter((e) => e.ctx.some((t) => active.has(t)));
+  if (pool.length === 0) return null;
+  const weights = pool.map((e) => {
+    let w = (route.bias && route.bias[e.kind]) ?? 1;
+    if (route.mechBoost && e.mech) w *= route.mechBoost;
+    if (route.mild && e.mech) w *= 0.25;
+    // surface situation-specific events (broke/infamous/hot/afterBomb...) when live
+    const specific = e.ctx.filter((t) => t !== "any");
+    if (specific.length && specific.some((t) => active.has(t))) w *= 3.4;
+    // Once you're genuinely infamous, virality is the STORY — it should crowd out
+    // the ordinary road. Scales with how notorious you are.
+    if (e.cat === "infamy" && active.has("infamous")) w *= 2 + (inf / 100) * 5;
+    // ...and the "aftermath of a bad night" beats stop mattering once you ARE the bad night
+    if (e.cat === "afterbomb" && e.kind === "bad" && inf >= 50) w *= 0.35;
+    return w;
+  });
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total, base = pool[pool.length - 1];
+  for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) { base = pool[i]; break; } }
+
+  // reputation reframing: same moment, different meaning by band
+  let ev = { ...base, effect: { ...base.effect } };
+  if (ctx.repBand === "infamous" && base.vInf) ev = applyVariant(ev, base.vInf);
+  else if (ctx.repBand === "good" && base.vHot) ev = applyVariant(ev, base.vHot);
+  // magnitude tier
+  if (base.scale) { const tiers = [0.7, 1.0, 1.35]; ev.effect = scaleEffect(ev.effect, tiers[(Math.random() * tiers.length) | 0]); }
+  // VIRALITY SNOWBALL: notoriety compounds — the more infamous you are, the harder
+  // a viral moment hits. This is what makes "famous for being bad" a real path.
+  if (ev.viral && ev.effect.fans > 0) {
+    ev.effect = { ...ev.effect, fans: Math.round(ev.effect.fans * (0.8 + (inf / 100) * 1.6)) };
+  }
+  return ev;
+}
+
+// small crisp pixel road icon per route flavor
+function RouteIcon({ kind, color }) {
+  const road = "#2a2438";
+  const common = { width: 46, height: 58, viewBox: "0 0 32 40", shapeRendering: "crispEdges", "aria-hidden": true };
+  if (kind === "winding") {
+    const segs = [[6, 0], [10, 5], [14, 10], [18, 15], [14, 20], [10, 25], [12, 30], [16, 35]];
+    return (
+      <svg {...common}>
+        {segs.map(([x, y], i) => <rect key={i} x={x} y={y} width="11" height="6" fill={road} />)}
+        {segs.filter((_, i) => i % 2 === 0).map(([x, y], i) => <rect key={"d" + i} x={x + 4} y={y + 1} width="2" height="3" fill={color} />)}
+      </svg>
+    );
+  }
+  if (kind === "rough") {
+    const chunks = [0, 6, 13, 19, 26, 33];
+    return (
+      <svg {...common}>
+        {chunks.map((y) => <rect key={y} x={11 + ((y % 12 === 0) ? 0 : 1)} y={y} width="10" height="4" fill={road} />)}
+        <rect x="7" y="9" width="3" height="3" fill="#6b5a44" />
+        <rect x="22" y="22" width="3" height="3" fill="#6b5a44" />
+        {[2, 15, 28].map((y) => <rect key={"d" + y} x="15" y={y} width="2" height="3" fill={color} />)}
+      </svg>
+    );
+  }
+  // straight (interstate)
+  return (
+    <svg {...common}>
+      <rect x="11" y="0" width="10" height="40" fill={road} />
+      {[2, 10, 18, 26, 34].map((y) => <rect key={y} x="15" y={y} width="2" height="5" fill={color} />)}
+    </svg>
+  );
 }
 
 // tiny pixel-bus SVG used as the moving marker on the route ribbon
@@ -1125,7 +1529,7 @@ function VanIcon() {
   );
 }
 
-function TravelScene({ fromLabel, toLabel, event, onDone }) {
+function TravelScene({ fromLabel, toLabel, route, event, onDone }) {
   const canvasRef = useRef(null);
   const fillRef = useRef(null);
   const vanRef = useRef(null);
@@ -1184,13 +1588,23 @@ function TravelScene({ fromLabel, toLabel, event, onDone }) {
   }, [event]);
 
   const fx = event?.effect || {};
+  const gr = route?.guaranteed || {};
+  const hasGuaranteed = gr.cash != null || gr.fans != null || gr.morale != null;
+  const routeChips = hasGuaranteed && (
+    <div className="event-fx route-fx">
+      <span className="route-fx-label">{route.name}:</span>
+      {gr.cash != null && <span className={"fx " + (gr.cash < 0 ? "neg" : "pos")}>{gr.cash < 0 ? "−" : "+"}{fmt$(Math.abs(gr.cash))}</span>}
+      {gr.fans != null && <span className={"fx " + (gr.fans < 0 ? "neg" : "pos")}>{gr.fans < 0 ? "−" : "+"}{Math.abs(gr.fans)} fans</span>}
+      {gr.morale != null && <span className={"fx " + (gr.morale < 0 ? "neg" : "pos")}>{gr.morale < 0 ? "−" : "+"}{Math.abs(gr.morale)} morale</span>}
+    </div>
+  );
   return (
     <div className="panel center travel">
-      <div className="kicker">{revealed && event ? "On the road…" : "On the road"}</div>
+      <div className="kicker">{route ? route.name : "On the road"}</div>
       <div className="route-ribbon">
         <span className="route-end">{fromLabel}</span>
         <div className="route-line">
-          <div className="route-fill" ref={fillRef} />
+          <div className="route-fill" ref={fillRef} style={route ? { background: route.accent } : undefined} />
           <div className="route-van" ref={vanRef}><VanIcon /></div>
         </div>
         <span className="route-end next">{toLabel}</span>
@@ -1209,12 +1623,18 @@ function TravelScene({ fromLabel, toLabel, event, onDone }) {
             {fx.fans != null && <span className={"fx " + (fx.fans < 0 ? "neg" : "pos")}>{fx.fans < 0 ? "−" : "+"}{Math.abs(fx.fans)} fans</span>}
             {fx.morale != null && <span className={"fx " + (fx.morale < 0 ? "neg" : "pos")}>{fx.morale < 0 ? "−" : "+"}{Math.abs(fx.morale)} morale</span>}
           </div>
-          <button className="btn big" onClick={() => onDone(event)}>Continue →</button>
+          {routeChips}
+          <button className="btn big" onClick={() => onDone(route, event)}>Continue →</button>
         </div>
       )}
 
       {revealed && !event && (
-        <button className="btn big" onClick={() => onDone(null)}>Roll into town →</button>
+        <div className="event-card">
+          <h3 className="event-title">{hasGuaranteed ? "An easy stretch of road" : "Clear road, quiet night"}</h3>
+          <p className="event-desc">{hasGuaranteed ? "No surprises — just the miles and the hum of the engine." : "Nothing but headlights and white lines. You make good time."}</p>
+          {routeChips}
+          <button className="btn big" onClick={() => onDone(route, null)}>Roll into town →</button>
+        </div>
       )}
     </div>
   );
@@ -1254,7 +1674,12 @@ export default function App() {
   const [ownedPerks, setOwnedPerks] = useState([]); // perk ids, reset each tour
   const [perkOffer, setPerkOffer] = useState([]);   // 3 ids currently offered
   const [travelEvent, setTravelEvent] = useState(null); // event rolled for current drive
+  const [routeOptions, setRouteOptions] = useState([]); // 3 routes offered at a junction
+  const [chosenRoute, setChosenRoute] = useState(null); // the route being driven
   const [eventsSeen, setEventsSeen] = useState([]);      // ids of road events encountered
+  const [cred, setCred] = useState(0);                   // are you good?  (0-100)
+  const [infamy, setInfamy] = useState(0);               // are you a memorable disaster? (0-100)
+  const rep = repState(cred, infamy);
   const [boards, setBoards] = useState(loadBoards);
   const [pendingScore, setPendingScore] = useState(null); // {score, rank} awaiting initials
   const [lbTab, setLbTab] = useState(diffKey);
@@ -1354,7 +1779,10 @@ export default function App() {
 
     setCash((v) => v + revenue);
     setFans((v) => v + newFans);
-    setMorale((m) => applyMoraleFloor(Math.min(100, m + (highGrade ? 8 : result.grade === "F" ? -12 : 0))));
+    const bombMoraleHit = perkMods.damageControl ? -6 : -12;
+    setMorale((m) => applyMoraleFloor(Math.min(100, m + (highGrade ? 8 : result.grade === "F" ? bombMoraleHit : 0))));
+    setCred((c) => updateRep(c, infamy, result.grade, perkMods).cred);
+    setInfamy((inf) => updateRep(cred, inf, result.grade, perkMods).infamy);
     setHistory((h) => [...h, {
       city: city.name, song: plan.song.name, grade: result.grade,
       acc: Math.round(result.acc * 100), revenue, newFans,
@@ -1385,20 +1813,45 @@ export default function App() {
     if (cash < 0) { setPhase("end"); return; }
     if (stop + 1 >= TOTAL_STOPS) { setPhase("end"); return; }
     setStop((s) => s + 1);
-    setTravelEvent(rollEvent());   // may be null (uneventful drive)
+    setRouteOptions(pickRoutes());   // fork the road: pick one of these next
+    setChosenRoute(null);
+    setPhase("route");
+  };
+
+  // player picks a road: roll that route's event (context-aware), then drive it
+  const chooseRoute = (route) => {
+    setChosenRoute(route);
+    const ctx = { lastGrade: result?.grade, cred, infamy, cash, morale, repBand: rep.band };
+    setTravelEvent(rollRouteEvent(route, ctx));  // may be null (uneventful drive)
     setPhase("travel");
   };
 
-  // called when the travel screen finishes; applies the one-time road event
-  const finishTravel = (ev) => {
+  // travel finished: apply the route's guaranteed effect AND the road event, plus
+  // reputation upkeep (Publicist converts infamy to fans; infamy decays each drive).
+  const finishTravel = (route, ev) => {
+    let dCash = 0, dFans = 0, dMorale = 0;
+    const gr = route?.guaranteed || {};
+    dCash += gr.cash || 0; dFans += gr.fans || 0; dMorale += gr.morale || 0;
     if (ev) {
       const e = ev.effect || {};
-      if (e.cash) setCash((v) => v + e.cash);
-      if (e.fans) setFans((v) => Math.max(0, v + e.fans));
-      if (e.morale) setMorale((m) => applyMoraleFloor(Math.max(0, Math.min(100, m + e.morale))));
+      let ec = e.cash || 0, ef = e.fans || 0;
+      // Tabloid Darling: viral "trainwreck" events pay more
+      if (ev.viral && perkMods.infamyEventBonus > 1) {
+        if (ec > 0) ec = Math.round(ec * perkMods.infamyEventBonus);
+        if (ef > 0) ef = Math.round(ef * perkMods.infamyEventBonus);
+      }
+      dCash += ec; dFans += ef; dMorale += e.morale || 0;
       setEventsSeen((s) => [...s, ev.id]);
     }
-    setTravelEvent(null);
+    // Publicist / Cult Leader: infamy quietly becomes fans each drive
+    if (perkMods.infamyToFans) dFans += Math.round(infamy * perkMods.infamyToFans);
+    if (dCash) setCash((v) => v + dCash);
+    if (dFans) setFans((v) => Math.max(0, v + dFans));
+    if (dMorale) setMorale((m) => applyMoraleFloor(Math.max(0, Math.min(100, m + dMorale))));
+    // reputation cools between stops
+    setCred((c) => decayRep(c, infamy, perkMods).cred);
+    setInfamy((inf) => decayRep(cred, inf, perkMods).infamy);
+    setTravelEvent(null); setChosenRoute(null);
     setPhase("map");
   };
 
@@ -1436,6 +1889,8 @@ export default function App() {
     setStop(0); setCash(600); setFans(120); setMorale(80);
     setHistory([]); setResult(null); setFeedback({ rating: 0, notes: "" });
     setOwnedPerks([]); setPerkOffer([]); setEventsSeen([]); setTravelEvent(null);
+    setRouteOptions([]); setChosenRoute(null);
+    setCred(0); setInfamy(0);            // reputation is per-tour; a new band starts unknown
     setPendingScore(null); setLbHighlight(null);
     tourScored.current = false;
     setPhase("map");
@@ -1451,6 +1906,7 @@ export default function App() {
       tourScore: history.length ? scoreRun({ cash, fans, history }) : null,
       perks: ownedPerks,
       roadEvents: eventsSeen,
+      reputation: { cred: Math.round(cred), infamy: Math.round(infamy), state: rep.id, label: rep.label, band: rep.band },
       runs: history,
       feedback,
     };
@@ -1475,6 +1931,9 @@ export default function App() {
       </span>
       <span className="stat dim">stop {Math.min(stop + 1, TOTAL_STOPS)}/{TOTAL_STOPS}</span>
       <span className="stat dim">{diff.label}</span>
+      {rep.id !== "unknown" && (
+        <span className={"rep-badge b-" + rep.band} title={rep.blurb}>{rep.label}</span>
+      )}
     </div>
   );
 
@@ -1526,10 +1985,47 @@ export default function App() {
         </div>
       )}
 
+      {phase === "route" && (
+        <div className="panel center route-select">
+          <div className="kicker">FORK IN THE ROAD</div>
+          <h2 className="h2" style={{ marginTop: 2 }}>Which way to Stop {Math.min(stop + 1, TOTAL_STOPS)}?</h2>
+          <p className="hint" style={{ marginBottom: 6 }}>Every road's a gamble. Pick your risk.</p>
+          <div className="route-grid">
+            {routeOptions.map((r) => {
+              const g = r.guaranteed || {};
+              const surprises = r.risk === "low" ? 1 : r.risk === "med" ? 2 : 3;
+              return (
+                <button key={r.id} className="route-card" style={{ "--rc": r.accent }} onClick={() => chooseRoute(r)}>
+                  <RouteIcon kind={r.icon} color={r.accent} />
+                  <div className="route-name">{r.name}</div>
+                  <div className="route-blurb">{r.blurb}</div>
+                  <div className="route-guar">
+                    {(g.cash != null || g.fans != null || g.morale != null) ? (
+                      <>
+                        {g.cash != null && <span className={"fx " + (g.cash < 0 ? "neg" : "pos")}>{g.cash < 0 ? "−" : "+"}{fmt$(Math.abs(g.cash))}</span>}
+                        {g.fans != null && <span className={"fx " + (g.fans < 0 ? "neg" : "pos")}>{g.fans < 0 ? "−" : "+"}{Math.abs(g.fans)} fans</span>}
+                        {g.morale != null && <span className={"fx " + (g.morale < 0 ? "neg" : "pos")}>{g.morale < 0 ? "−" : "+"}{Math.abs(g.morale)} mrl</span>}
+                      </>
+                    ) : <span className="fx neutral">no bonus</span>}
+                  </div>
+                  <div className="route-risk">
+                    <span className="rr-label">Surprises</span>
+                    <span className="rr-dots">
+                      {[0, 1, 2].map((i) => <span key={i} className={"rr-dot" + (i < surprises ? " on" : "")} />)}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {phase === "travel" && (
         <TravelScene
           fromLabel={history.length ? history[history.length - 1].city : "Home"}
           toLabel={`Stop ${Math.min(stop + 1, TOTAL_STOPS)}`}
+          route={chosenRoute}
           event={travelEvent}
           onDone={finishTravel}
         />
@@ -1548,6 +2044,28 @@ export default function App() {
               </React.Fragment>
             ))}
           </div>
+          {(cred > 0 || infamy > 0) && (
+            <div className={"rep-line b-" + rep.band}>
+              <div className="rep-head">
+                <span className="rep-title">The scene calls you: <b>{rep.label}</b></span>
+                <span className="rep-blurb">{rep.blurb}</span>
+              </div>
+              <div className="rep-meters">
+                <div className="rep-meter">
+                  <span className="rm-label">Cred</span>
+                  <div className="rm-track"><div className="rm-fill cred" style={{ width: Math.round(cred) + "%" }} /></div>
+                </div>
+                <div className="rep-meter">
+                  <span className="rm-label">Infamy</span>
+                  <div className="rm-track"><div className="rm-fill inf" style={{ width: Math.round(infamy) + "%" }} /></div>
+                </div>
+              </div>
+              {rep.band === "infamous" && (rep.viral
+                ? <p className="rep-note">🔥 Infamy is pulling crowds now — the road throws you virality, not respect.</p>
+                : <p className="rep-note dim-note">Keep bombing and infamy becomes its own kind of fame. ({Math.round(INFAMY_VIRAL_AT - infamy)} more to go viral.)</p>
+              )}
+            </div>
+          )}
           <h2 className="h2">Next stop — pick your route</h2>
           <div className="cards">
             {cityOptions.map((c) => {
@@ -1676,6 +2194,7 @@ export default function App() {
           morale={applyMoraleFloor(Math.max(0, Math.min(100, morale + (plan.travel === "rest" ? (15 + (perkMods.moraleRestBonus||0)) : -(18 - (perkMods.moraleDriveReduction||0))))))}
           calOffset={(calOffsetMs || 0) / 1000}
           perkMods={perkMods}
+          afterBomb={result?.grade === "C" || result?.grade === "F"}
           diff={diff}
           seed={seed + stop * 977} onDone={onGigDone} />
       )}
@@ -1790,7 +2309,21 @@ export default function App() {
       {phase === "end" && (
         <div className="panel center">
           <div className="kicker">TOUR OVER</div>
-          <h1 className="logo sm">{cash < 0 ? "BANKRUPT\nIN A MOTEL" : fans >= 1200 ? "SIGNED." : fans >= 600 ? "BUZZ BAND" : "LOCAL LEGEND"}</h1>
+          <h1 className="logo sm">{
+            cash < 0 ? "BANKRUPT\nIN A MOTEL"
+            : rep.band === "infamous"
+              ? (fans >= 1200 ? "FAMOUS\nFOR THE WRONG\nREASONS" : fans >= 600 ? "VIRAL\nTRAINWRECK" : "A CAUTIONARY\nTALE")
+              : (fans >= 1200 ? "SIGNED." : fans >= 600 ? "BUZZ BAND" : "LOCAL LEGEND")
+          }</h1>
+          {rep.id !== "unknown" && (
+            <p className={"end-rep b-" + rep.band}>
+              {rep.band === "infamous"
+                ? `They'll never forget you — ${fans.toLocaleString()} people follow the wreckage.`
+                : rep.band === "good"
+                  ? `${rep.label}. You earned every one of those ${fans.toLocaleString()} fans.`
+                  : `${rep.label}. The road's still deciding what you are.`}
+            </p>
+          )}
           <div className="res-grid">
             <div><span className="dim">Final cash</span><b>{fmt$(cash)}</b></div>
             <div><span className="dim">Fanbase</span><b>{fans.toLocaleString()}</b></div>
@@ -2054,6 +2587,55 @@ const CSS = `
 .event-fx { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 6px 0 4px; }
 .event-fx .fx { font-family: 'Bungee', sans-serif; font-size: 14px; padding: 4px 12px; border-radius: 10px; background: rgba(255,255,255,0.06); }
 .event-fx .fx.pos { color: #8CFF9E; } .event-fx .fx.neg { color: #ff9a9a; }
+.event-fx .fx.neutral { color: #9a9086; }
+.route-fx { align-items: center; margin-top: 2px; }
+.route-fx-label { font-size: 12px; color: #9a9086; }
+
+/* ---- route selection (fork in the road) ---- */
+.route-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; max-width: 620px; margin-top: 8px; }
+@media (max-width: 620px) { .route-grid { grid-template-columns: 1fr; } }
+.route-card {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
+  padding: 16px 12px 14px; border-radius: 14px; cursor: pointer; color: inherit; font-family: inherit;
+  background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.12);
+  transition: border-color .14s, transform .1s, background .14s;
+}
+.route-card:hover, .route-card:active { border-color: var(--rc); background: color-mix(in srgb, var(--rc) 10%, transparent); transform: translateY(-3px); }
+.route-name { font-family: 'Bungee', sans-serif; font-size: 15px; color: #F4EDE0; }
+.route-blurb { font-size: 12.5px; color: #cfc6b8; line-height: 1.35; min-height: 50px; }
+.route-guar { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; min-height: 26px; align-items: center; }
+.route-guar .fx { font-family: 'Bungee', sans-serif; font-size: 12px; padding: 3px 9px; border-radius: 8px; background: rgba(255,255,255,0.06); }
+.route-risk { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.rr-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a9086; }
+.rr-dots { display: flex; gap: 4px; }
+.rr-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.14); }
+.rr-dot.on { background: var(--rc); }
+
+/* ---- reputation ---- */
+.rep-badge { font-family: 'Bungee', sans-serif; font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 20px; white-space: nowrap; }
+.rep-badge.b-good { background: rgba(87,224,232,0.16); color: #57E0E8; border: 1px solid rgba(87,224,232,0.45); }
+.rep-badge.b-neutral { background: rgba(255,255,255,0.07); color: #9a9086; border: 1px solid rgba(255,255,255,0.16); }
+.rep-badge.b-infamous { background: rgba(255,61,127,0.18); color: #FF6FA3; border: 1px solid rgba(255,61,127,0.5); }
+.rep-line { width: 100%; border-radius: 12px; padding: 10px 14px; margin: 4px 0 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); }
+.rep-line.b-infamous { background: rgba(255,61,127,0.07); border-color: rgba(255,61,127,0.3); }
+.rep-line.b-good { background: rgba(87,224,232,0.06); border-color: rgba(87,224,232,0.26); }
+.rep-head { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.rep-title { font-size: 13.5px; color: #cfc6b8; }
+.rep-title b { color: #F4EDE0; }
+.rep-blurb { font-size: 12px; color: #8d8478; font-style: italic; }
+.rep-meters { display: flex; gap: 14px; margin-top: 7px; }
+.rep-meter { display: flex; align-items: center; gap: 6px; flex: 1; }
+.rm-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #8d8478; min-width: 42px; }
+.rm-track { flex: 1; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.09); overflow: hidden; }
+.rm-fill { height: 100%; border-radius: 3px; transition: width .35s ease; }
+.rm-fill.cred { background: #57E0E8; }
+.rm-fill.inf { background: #FF3D7F; }
+.rep-note { font-size: 12px; color: #FF9ec4; margin: 7px 0 0; line-height: 1.35; }
+.rep-note.dim-note { color: #b09a86; }
+.end-rep { font-size: 14px; line-height: 1.45; text-align: center; margin: 2px 0 6px; max-width: 420px; }
+.end-rep.b-infamous { color: #FF9ec4; }
+.end-rep.b-good { color: #8FEAF0; }
+.end-rep.b-neutral { color: #9a9086; }
 
 /* ---- export hint spacing (button has a 6px drop shadow) ---- */
 .export-hint { margin-top: 6px; text-align: center; line-height: 1.4; }
