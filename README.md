@@ -63,21 +63,23 @@ from another project on the same Render account: there's nothing here that
   generated from `bpm`/`feel`, so nothing else changes. Songs can be swapped one
   at a time, and a missing or broken file automatically falls back to the synth
   rather than leaving a silent gig. See `public/audio/README.md`.
-- **Infamy has to be earned (anti-exploit):** infamy is only granted by horrifying
-  an audience that **stayed**. A walkout earns **zero** infamy — nobody films a
-  disaster nobody watched — and infamy scales with how many people were actually
-  in the room (`INFAMY_CROWD_REF`, full value at ~220 heads). A walkout also
-  craters the door take by 65%, since an empty room buys no merch and the promoter
-  saw it happen. The practical effect: "never touch the screen" now ends the tour
-  as **Unknowns with zero infamy**, instead of Notorious. To go viral as a
-  trainwreck you must draw a real crowd (promo + fans, which cost money and
-  require earlier success) and then **hold the room for the whole song while
-  playing badly** — measured, that needs ~80% of notes hit on Normal (~90% on
-  Hard) with deliberately sloppy timing, since accuracy blends hit-rate with
-  precision. That's active, skillful needle-threading, not idling.
-  *Known caveat:* mashing all four lanes still reaches C-grade infamy (~92% of the
-  time on Normal) at half rate, because `doHit` ignores taps with no note nearby.
-  It scores well below honest play, but a spurious-tap penalty would close it.
+- **Infamy has to be earned — but flailing counts (anti-exploit):** the engine
+  distinguishes a **bum note** (you swung and missed — the crowd winces but you're
+  up there playing, drain -2) from **dead air** (nobody touched anything, drain
+  -6). That distinction is the whole thing: it's what separates a trainwreck from
+  an empty stage. Infamy is then scaled by three factors — **witnesses** (how many
+  were in the room, full value ~130 heads), **tried** (share of notes you actually
+  swung at, in any lane; zero below 15%), and **stayed** (clearing the room is
+  0.85× — "they emptied the place in 90 seconds" is its own legend). A walkout also
+  craters the door take by 65%.
+  Measured outcomes: **never touching the screen ends the tour as Unknowns with
+  zero infamy** and the game tells you why ("An empty stage isn't a trainwreck,
+  it's a no-show"). A player who taps constantly with no timing earns ~14
+  infamy/gig and hits **Viral Trainwreck by stop 3, Notorious by stop 4**. Good
+  play is unaffected — if you're landing notes, you're not draining anything.
+  *Known caveat:* mashing all four lanes tends to produce **good** grades (it
+  covers the windows by brute force), so it's a scoring question rather than an
+  infamy one, and it still scores below honest play.
 - **Reputation & infamy — two ways to get famous:** every gig moves two hidden
   axes. **Cred** rises on B+ sets; **infamy** rises when you bomb. Your standing
   shows on the map (Unknowns → On the Radar → Rising → Acclaimed → Legendary, or

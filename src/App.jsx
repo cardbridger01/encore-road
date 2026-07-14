@@ -744,6 +744,20 @@ function Calibration({ onDone, onSkip }) {
 }
 
 /* ============================ GIG SCENE ============================ */
+/* A note that passes un-hit means one of two very different things:
+     BUM NOTE — you swung and missed. The crowd winces, but you're up there
+                playing. They stay to watch the wreck.
+     DEAD AIR — nobody touched anything. Nothing is happening on stage, and
+                a room empties fast when nothing is happening.
+   The old engine couldn't tell these apart, so a flailing player drained the
+   room exactly as fast as an empty stage — which made the infamy path
+   unreachable in practice (measured: a flailing player held the room 16% of the
+   time on Normal, 0% on Hard). ATTEMPT_WIN is how close a tap has to be to a
+   note to count as "you were going for it". */
+const ATTEMPT_WIN = 0.30;   // seconds
+const BUM_DRAIN = 2;        // swung and missed
+const DEAD_DRAIN = 6;       // nobody played anything
+
 function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, onDone }) {
   const canvasRef = useRef(null);
   const stateRef = useRef(null);
@@ -773,6 +787,12 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
     const trueNow = S.ctx.currentTime - S.t0;
     const now = trueNow - calOffset; // calibration-adjusted judgment clock
     S.pressFx[lane] = trueNow;
+    // Log every tap, landed or not. This is what lets the crowd tell a player
+    // who's flailing from a stage with nobody on it.
+    const log = S.tapLog[lane];
+    log.push(now);
+    while (log.length && now - log[0] > 1.5) log.shift();
+    S.taps++;
     let best = null, bestD = Infinity;
     for (const n of S.chart.notes) {
       if (n.judged || n.lane !== lane) continue;
@@ -789,6 +809,7 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
       const mult = 1 + Math.min(3, Math.floor(S.combo / 10) * 0.5);
       S.score += Math.round((perfect ? 100 : 55) * mult * (pm.scoreMult || 1));
       S.pts += perfect ? 1 : 0.6; S.total++;
+      S.attemptedNotes++;
       const gain = (perfect ? 2 + (pm.perfectCrowdBonus || 0) : 1);
       S.crowd = Math.min(100, S.crowd + gain);
       S.deltas.push(best.t - now); // signed timing delta, for playtest telemetry
@@ -808,6 +829,7 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
       ctx, track, chart, t0, audioIdx: 0, started: false, finished: false,
       score: 0, combo: 0, maxCombo: 0, crowd: startCrowd, pts: 0, total: 0,
       pressFx: [-9, -9, -9, -9], judgeFx: null, deltas: [],
+      tapLog: [[], [], [], []], taps: 0, attemptedNotes: 0, deadNotes: 0,
       missDrainMult: (pm.missDrainMult || 1) * md.missPenaltyMult, canRevive: !!pm.reviveOnce, revived: false,
     };
     stateRef.current = S;
@@ -846,8 +868,14 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
         if (!n.judged && n.t < judgeNow - W_GOOD) {
           n.judged = "miss";
           S.combo = 0; S.total++;
-          S.crowd = Math.max(0, S.crowd - 6 * S.missDrainMult);
-          S.judgeFx = { text: "MISS", t: now, lane: n.lane };
+          // Did the player swing at this? A tap in ANY lane near this note counts:
+          // hitting the wrong note at roughly the right time is still playing badly,
+          // which is a different thing from an empty stage.
+          const swung = S.tapLog.some((ln) => ln.some((tt) => Math.abs(tt - n.t) <= ATTEMPT_WIN));
+          if (swung) S.attemptedNotes++; else S.deadNotes++;
+          const drain = swung ? BUM_DRAIN : DEAD_DRAIN;
+          S.crowd = Math.max(0, S.crowd - drain * S.missDrainMult);
+          S.judgeFx = { text: swung ? "BUM NOTE" : "MISS", t: now, lane: n.lane };
         }
       }
 
@@ -936,6 +964,10 @@ function Gig({ song, tier, morale, calOffset, perkMods, diff, seed, afterBomb, o
         onDone({
           grade: crowdWalked ? "F" : gradeOf(finalAcc),
           acc: finalAcc, score: S.score, maxCombo: S.maxCombo, walked: crowdWalked,
+          // engagement = share of notes you actually swung at (landed or not).
+          // This is the difference between a trainwreck and an empty stage.
+          engagement: chart.notes.length ? S.attemptedNotes / chart.notes.length : 0,
+          taps: S.taps, deadNotes: S.deadNotes,
           deltaMeanMs: Math.round(dMean * 1000), deltaStdMs: Math.round(Math.sqrt(dVar) * 1000),
         });
         return;
@@ -1422,26 +1454,29 @@ const clamp100 = (n) => Math.max(0, Math.min(100, n));
 const INFAMY_VIRAL_AT = 50;   // infamy at which the virality event pool actually unlocks
 const REP_GAIN = { S: { c: 18, i: -8 }, A: { c: 12, i: -5 }, B: { c: 6, i: -2 }, C: { c: -4, i: 9 }, F: { c: -9, i: 18 } };
 
-/* Nobody films a disaster nobody watched.
-   Infamy is only earned by horrifying an audience that STAYED — so:
-     - a walkout earns zero infamy (they left before it got good)
-     - infamy scales with how many people you actually disappointed
-   This is what stops "never touch the screen" from being a viable path: an
-   empty room bombing in silence is not a trainwreck, it's a no-show. To farm
-   infamy you must draw a real crowd (promo + fans, which cost cash and require
-   earlier success) and then survive the whole song while playing badly. */
-const INFAMY_CROWD_REF = 220;  // audience size that earns the full listed infamy
-function infamyScale(attend, walked) {
-  if (walked) return 0;
-  return Math.max(0.15, Math.min(1.6, (attend || 0) / INFAMY_CROWD_REF));
+/* Nobody films a disaster nobody watched — but you also have to actually be up
+   there having the disaster. Three things gate infamy:
+     witnesses  — how many people were in the room to be horrified
+     tried      — did you play at all? flailing counts; an empty stage doesn't
+     stayed     — horrifying a full room is a bigger story than clearing it
+   `tried` is what stops "never touch the screen" from being a path, WITHOUT
+   making genuine flailing impossible (which the walkout-only gate did). */
+const INFAMY_CROWD_REF = 130;  // audience size that earns the full listed infamy
+function infamyScale(attend, walked, engagement = 1) {
+  const witnesses = Math.max(0.15, Math.min(1.6, (attend || 0) / INFAMY_CROWD_REF));
+  const tried = Math.max(0, Math.min(1, (engagement - 0.15) / 0.45)); // 0 at <=15% swung, full at >=60%
+  // Clearing the room while visibly flailing is its own legend — "they emptied
+  // the place in 90 seconds" travels. Only slightly behind horrifying a full room.
+  const stayed = walked ? 0.85 : 1;
+  return witnesses * tried * stayed;
 }
 
 function updateRep(cred, infamy, grade, mods = {}, ev = {}) {
   const g = REP_GAIN[grade] || { c: 0, i: 0 };
   let dC = g.c, dI = g.i;
   if (mods.damageControl && (grade === "F" || grade === "C")) { dC *= 0.5; dI *= 0.75; }
-  // gaining infamy requires a witness; losing cred does not
-  if (dI > 0) dI *= infamyScale(ev.attend, ev.walked);
+  // gaining infamy requires witnesses and effort; losing cred requires neither
+  if (dI > 0) dI *= infamyScale(ev.attend, ev.walked, ev.engagement);
   return { cred: clamp100(cred + dC), infamy: clamp100(infamy + dI) };
 }
 function decayRep(cred, infamy, mods = {}) {
@@ -2081,12 +2116,12 @@ export default function App() {
     setFans((v) => v + newFans);
     const bombMoraleHit = perkMods.damageControl ? -6 : -12;
     setMorale((m) => applyMoraleFloor(Math.min(100, m + (highGrade ? 8 : result.grade === "F" ? bombMoraleHit : 0))));
-    const repEv = { walked: !!result.walked, attend: shownAttend };
+    const repEv = { walked: !!result.walked, attend: shownAttend, engagement: result.engagement ?? 1 };
     setCred((c) => updateRep(c, infamy, result.grade, perkMods, repEv).cred);
     setInfamy((inf) => updateRep(cred, inf, result.grade, perkMods, repEv).infamy);
     setHistory((h) => [...h, {
       city: city.name, song: plan.song.name, grade: result.grade,
-      acc: Math.round(result.acc * 100), revenue, newFans, walked: !!result.walked, attend: shownAttend,
+      acc: Math.round(result.acc * 100), revenue, newFans, walked: !!result.walked, attend: shownAttend, engagement: +(result.engagement ?? 1).toFixed(2),
       deltaMeanMs: result.deltaMeanMs, deltaStdMs: result.deltaStdMs,
     }]);
     setResult((r) => ({ ...r, settled: true, revenue, newFans, shownAttend, breakdown: lines }));
@@ -2515,11 +2550,24 @@ export default function App() {
             <div className="kicker">{city.name} — set complete</div>
             <div className={"grade g-" + g + (celebrate ? " pop" : "")}>{g}</div>
             <h2 className="splash-headline">{headline}</h2>
-            {result.walked ? (
-              <p className="rep-teach cold">They didn't stay to hate it. An empty room makes no legend — <b>no infamy earned</b>.</p>
-            ) : (g === "C" || g === "F") ? (
-              <p className="rep-teach hot">You held them there and they'll be talking about it. <b>+{Math.round((REP_GAIN[g]?.i || 0) * infamyScale(result.shownAttend, false) * (perkMods.damageControl ? 0.75 : 1))} infamy</b> — {result.shownAttend} witnesses.</p>
-            ) : null}
+            {(() => {
+              const eng = result.engagement ?? 1;
+              const gained = Math.round((REP_GAIN[g]?.i || 0)
+                * infamyScale(result.shownAttend, result.walked, eng)
+                * (perkMods.damageControl ? 0.75 : 1));
+              if (!(g === "C" || g === "F")) return null;
+              if (eng < 0.15) return (
+                <p className="rep-teach cold">Nobody was playing. An empty stage isn't a trainwreck, it's a no-show — <b>no infamy earned</b>.</p>
+              );
+              if (gained <= 0) return null;
+              return (
+                <p className="rep-teach hot">
+                  {result.walked
+                    ? <>You cleared the room — and they're telling people. <b>+{gained} infamy</b>.</>
+                    : <>You held them there and they'll be talking about it. <b>+{gained} infamy</b> — {result.shownAttend} witnesses.</>}
+                </p>
+              );
+            })()}
 
             <div className="payout-hero">
               <span className="payout-label">You earned</span>
