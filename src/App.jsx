@@ -87,6 +87,10 @@ const SONGS = [
   { id: "s8",  name: "Faultline",         tag: "metal",  bpm: 158, diff: 3, feel: "syncopated", root: "Am", blurb: "Mid-tempo grind, still brutal." },
   { id: "s19", name: "Hammer County",     tag: "metal",  bpm: 170, diff: 4, feel: "driving",    root: "Dm", blurb: "Gallop riffs, double-kick bursts." },
   { id: "s20", name: "Iron Lung Blues",   tag: "metal",  bpm: 150, diff: 3, feel: "syncopated", root: "Gmaj",blurb: "Sludgy, heavy, off-beat stomp." },
+
+  // --- SECRET. Hidden until the Meridian story is complete (see LORE).
+  // No crowd anywhere dislikes it: the whole point is that it transcends the room.
+  { id: "s21", name: "The Fourth Song",   tag: "anthem", bpm: 74,  diff: 4, feel: "halftime",   root: "Am",  blurb: "Twelve minutes. Meridian only played it once.", secret: true, universal: true },
 ];
 
 const ARCH = {
@@ -216,7 +220,137 @@ function drawPerks(ownedIds, n = 3) {
    localStorage (this ships as a static site, so there's no backend — scores
    are per-browser). Top 10 per board; qualifying runs prompt for initials.
    ==================================================================== */
-const LB_KEY = "encoreRoadLeaderboard";
+/* ============================ CAREER MEMORY ============================
+   Everything above resets when a tour ends. This doesn't.
+
+   The reason a roguelite feels bottomless isn't event count — we already have
+   134 road events and they still get familiar. It's that the game REMEMBERS
+   you, and WITHHOLDS. Content you haven't earned yet; content that references
+   the specific thing you did three tours ago. That's the whole mechanism.
+
+   The career is the only thing that persists across tours, and it's what gates
+   the lore, the recurring characters, and the secret song.
+   ==================================================================== */
+/* ============================ SONG ECONOMICS ============================
+   Before this, a song's `diff` only added notes — it had no upside at all, so
+   the optimal pick was always "the lowest-diff song this city loves", every
+   night, forever. Two levers fix that:
+
+   AMBITION — a harder chart is worth more when you land it. A diff-4 song
+     becomes a bet (bigger payout, easier to botch) rather than a strictly worse
+     diff-1. A weak player should still take the easy song; that's the point.
+
+   FRESHNESS — a scene talks. The same song every night stops winning you new
+     people, and the band gets sick of playing it. This is what stops one song
+     from owning a whole tour and makes the rest of the catalog matter.
+   ==================================================================== */
+const AMBITION = { 1: 0.85, 2: 1.0, 3: 1.15, 4: 1.32 };
+// Ambition only pays if you LAND it. Reaching for a hard chart and botching it
+// must never out-earn playing something simple well — otherwise a player who's
+// going to bomb anyway is incentivised to always pick the hardest song.
+const ambitionOf = (song, grade) =>
+  (grade === undefined || ["S", "A", "B"].includes(grade)) ? (AMBITION[song.diff] || 1) : 1;
+// 1st play 1.00 · 2nd 0.72 · 3rd 0.52 · 4th 0.37
+const freshnessOf = (timesPlayed) => Math.pow(0.72, Math.max(0, timesPlayed));
+const staleLabel = (n) => (n === 0 ? null : n === 1 ? "played once" : `played ${n}×`);
+
+const CAREER_KEY = "encoreRoadCareer";
+const blankCareer = () => ({
+  v: 1,
+  tours: 0,          // tours finished (however they ended)
+  gigs: 0,           // gigs played, ever
+  bankruptcies: 0,   // tours that ended in the red
+  bombs: 0,          // C/F gigs, ever
+  bangers: 0,        // S/A gigs, ever
+  cities: {},        // name -> times played
+  songs: {},         // song id -> times played
+  reps: [],          // reputation label at the end of each tour, in order
+  notorious: 0,      // tours ended in the infamous band
+  legendary: 0,      // tours ended with high cred
+  lore: [],          // ids of lore fragments found
+  seen: {},          // road event id -> times seen, ACROSS tours
+  bestScore: 0,
+  lastTour: null,    // { city, cash, fans, rep, ending }
+});
+function loadCareer() {
+  if (typeof window === "undefined") return blankCareer();
+  try {
+    const raw = window.localStorage.getItem(CAREER_KEY);
+    if (!raw) return blankCareer();
+    return { ...blankCareer(), ...JSON.parse(raw) };
+  } catch { return blankCareer(); }
+}
+function saveCareer(c) {
+  try { window.localStorage.setItem(CAREER_KEY, JSON.stringify(c)); } catch { /* blocked/full */ }
+}
+
+/* ============================ THE MERIDIAN ============================
+   The band that owned this van before you. Their story is only assembled by
+   touring repeatedly — each fragment is gated behind career conditions, so it
+   cannot be rushed or read in one sitting. Finding all of it unlocks the song
+   they stopped playing.
+
+   `when(c)` reads the persistent career, never the current tour.
+   ==================================================================== */
+const LORE = [
+  {
+    id: "cassette", title: "The Cassette", scene: "motel", find: "Under the bench seat",
+    hint: "Play a few shows. Things surface.",
+    when: (c) => c.gigs >= 2,
+    text: "Something's been digging into someone's heel for three hundred miles. It's a cassette, no case, MERIDIAN — ROUGH written on the label in ballpoint. Side A is four songs. You play it twice before anybody says anything.\n\nThey're good. They're better than good.",
+  },
+  {
+    id: "setlist", title: "The Setlist", scene: "shop", find: "Taped inside the glovebox",
+    hint: "Finish a tour. Come back to the van.",
+    when: (c) => c.tours >= 1,
+    text: "Gone amber, curling at the corners, taped inside the glovebox since before you owned this thing. A setlist. Four songs in blue pen.\n\nThe fourth is scratched out so hard the pen went through the paper.",
+  },
+  {
+    id: "visor", title: "The Note in the Visor", scene: "motel", find: "Folded into the sun visor",
+    hint: "You'll find it on a bad night.",
+    when: (c) => c.tours >= 1 && c.bombs >= 3,
+    text: "You flip the visor down against a sunrise you didn't plan for, and it falls into your lap. Soft as cloth from being folded and refolded.\n\n\"whatever else happens — don't play the fourth one. —M\"",
+  },
+  {
+    id: "photo", title: "The Photograph", scene: "shop", find: "Behind the rattling panel",
+    hint: "Two tours. The van gives things up slowly.",
+    when: (c) => c.tours >= 2,
+    text: "That panel's rattled since the day you bought it. You finally pry it off at a rest stop in the dark, and a photograph falls out.\n\nFour people sitting on this bumper, in some parking lot, squinting into the sun. On the back, same blue pen: TULSA — LAST GOOD ONE.",
+  },
+  {
+    id: "clipping", title: "The Clipping", scene: "meme", find: "Laminated, under the spare",
+    hint: "Only a band that's been hated will find this one.",
+    when: (c) => c.tours >= 2 && c.notorious >= 1,
+    text: "Under the spare, laminated — somebody wanted this kept. A scrap of newsprint, no date left on it:\n\n\"MERIDIAN EMPTIES CAIN'S BALLROOM. They played one song for forty minutes, said the promoter. People were crying. I have never seen anything like it and I hope I never do again.\"",
+  },
+  {
+    id: "reel", title: "The Fourth Song", scene: "club", find: "At the bottom of the toolbox",
+    hint: "Three tours deep. Keep the van.",
+    when: (c) => c.tours >= 3,
+    text: "At the bottom of the toolbox, under forty years of loose sockets: a reel of quarter-inch tape. Labeled only IV.\n\nA shop in Amarillo has a machine. It's twelve minutes long. Nobody talks for the rest of the drive.",
+  },
+  {
+    id: "truth", title: "Norman, Oklahoma", scene: "club", find: "You go looking",
+    hint: "When you've found the rest, go find her.",
+    when: (c) => c.tours >= 4 && c.lore.length >= 6,
+    // the reveal reframes by how YOU toured — the same question, a different answer
+    variants: {
+      infamous: "You track down the drummer. She teaches now, in Norman, and she's polite about it until you say the word Cain's.\n\n\"That wasn't a breakdown,\" she says. \"That was the fourth song. All forty minutes of it, exactly as written, exactly once.\" They never got booked in this state again. She's quiet a while.\n\n\"Best night of my life,\" she says. \"Every one of us would tell you the same.\"",
+      good: "You track down the drummer. She teaches now, in Norman, and she laughs when you say you've got the van.\n\n\"We got good,\" she says. \"Then we got signed. Then we got told which four songs to play, and the fourth one wasn't on the list. Two hundred nights a year, six years.\" She stirs her coffee. \"Never played it again.\"\n\n\"We were huge,\" she says. \"You've never heard of us.\"",
+      neutral: "You track down the drummer. She teaches now, in Norman. She doesn't much want to talk about it.\n\nFour people, a van, and a song nobody's heard. And then one day they weren't a band anymore, and nobody remembers deciding that.\n\n\"You've still got it?\" she asks. \"The van?\" And then, after a long time: \"Play the fourth one. Somebody should.\"",
+    },
+  },
+];
+const loreById = (id) => LORE.find((l) => l.id === id);
+// Which fragment is eligible right now and hasn't been found?
+function nextLore(career) {
+  return LORE.find((l) => !career.lore.includes(l.id) && l.when(career)) || null;
+}
+// Reading the reveal is gated on the whole story, and the story unlocks the song.
+const SECRET_UNLOCKED = (career) => career.lore.length >= LORE.length;
+// The secret song simply does not exist until the story is finished.
+const availableSongs = (career) => SONGS.filter((s) => !s.secret || SECRET_UNLOCKED(career));
+
 const LB_SIZE = 10;
 const LB_NAME_KEY = "encoreRoadLastInitials";
 
@@ -1237,7 +1371,7 @@ function Leaderboard({ boards, activeKey, onSelect, highlight }) {
 
 // Swipeable song carousel for narrow screens: scroll-snap cards, prev/next
 // arrows, and a position readout. Tapping a card selects that song.
-function SongCarousel({ songs, selectedId, onSelect, arch }) {
+function SongCarousel({ songs, selectedId, onSelect, arch, plays = {} }) {
   const trackRef = useRef(null);
   const [idx, setIdx] = useState(() => Math.max(0, songs.findIndex((s) => s.id === selectedId)));
 
@@ -1282,8 +1416,11 @@ function SongCarousel({ songs, selectedId, onSelect, arch }) {
       </div>
       <div className="carousel" ref={trackRef} onScroll={onScroll}>
         {songs.map((s) => {
-          const love = s.tag === arch.loves, hate = s.tag === arch.hates;
+          const love = s.universal || s.tag === arch.loves, hate = !s.universal && s.tag === arch.hates;
           const sel = s.id === selectedId;
+          const amb = ambitionOf(s);
+          const n = plays[s.id] || 0;
+          const stale = staleLabel(n);
           return (
             <div key={s.id}
               className={"song-slide" + (sel ? " sel" : "")}
@@ -1294,6 +1431,10 @@ function SongCarousel({ songs, selectedId, onSelect, arch }) {
               <div className="slide-name">{s.name}</div>
               <div className="slide-meta">{s.tag} · {s.bpm} bpm</div>
               <div className="slide-diff">{"◆".repeat(s.diff)}{"◇".repeat(4 - s.diff)}</div>
+              <div className="slide-econ">
+                <span className={amb >= 1.15 ? "amb hi" : amb < 1 ? "amb lo" : "amb"}>×{amb} payout on B+</span>
+                {stale && <span className="stale-tag">{stale} — they've heard it</span>}
+              </div>
               <div className="slide-blurb">{s.blurb}</div>
               <div className={"slide-pick" + (sel ? " on" : "")}>{sel ? "✓ In tonight's set" : "Tap to pick"}</div>
             </div>
@@ -1857,7 +1998,7 @@ function VanIcon() {
   );
 }
 
-function TravelScene({ fromLabel, toLabel, route, event, onDone }) {
+function TravelScene({ fromLabel, toLabel, route, event, lore, careerRepBand, onDone }) {
   const canvasRef = useRef(null);
   const fillRef = useRef(null);
   const vanRef = useRef(null);
@@ -1941,7 +2082,20 @@ function TravelScene({ fromLabel, toLabel, route, event, onDone }) {
 
       {!revealed && <p className="hint">Driving to the next stop… (tap to hurry)</p>}
 
-      {revealed && event && (
+      {revealed && lore && (
+        <div className="event-card lore-card">
+          <div className="lore-kind">✦ THE VAN REMEMBERS ✦</div>
+          <div className="lore-find">{lore.find}</div>
+          <h3 className="lore-title">{lore.title}</h3>
+          {(lore.variants
+            ? (lore.variants[careerRepBand] || lore.variants.neutral)
+            : lore.text
+          ).split("\n\n").map((para, i) => <p className="lore-text" key={i}>{para}</p>)}
+          <button className="btn big" onClick={() => onDone(route, null)}>Keep it →</button>
+        </div>
+      )}
+
+      {revealed && !lore && event && (
         <div className="event-card">
           <div className={"event-kind k-" + event.kind}>{event.kind === "good" ? "GOOD FORTUNE" : event.kind === "bad" ? "TROUBLE" : "A DETOUR"}</div>
           <h3 className="event-title">{event.title}</h3>
@@ -1956,7 +2110,7 @@ function TravelScene({ fromLabel, toLabel, route, event, onDone }) {
         </div>
       )}
 
-      {revealed && !event && (
+      {revealed && !lore && !event && (
         <div className="event-card">
           <h3 className="event-title">{hasGuaranteed ? "An easy stretch of road" : "Clear road, quiet night"}</h3>
           <p className="event-desc">{hasGuaranteed ? "No surprises — just the miles and the hum of the engine." : "Nothing but headlights and white lines. You make good time."}</p>
@@ -2008,6 +2162,9 @@ export default function App() {
   const [cred, setCred] = useState(0);                   // are you good?  (0-100)
   const [infamy, setInfamy] = useState(0);               // are you a memorable disaster? (0-100)
   const rep = repState(cred, infamy);
+  const [career, setCareer] = useState(loadCareer);      // persists across tours
+  const [setlistPlays, setSetlistPlays] = useState({});  // song id -> plays THIS tour
+  const [loreFind, setLoreFind] = useState(null);        // fragment surfacing on this drive
   const [boards, setBoards] = useState(loadBoards);
   const [pendingScore, setPendingScore] = useState(null); // {score, rank} awaiting initials
   const [lbTab, setLbTab] = useState(diffKey);
@@ -2035,22 +2192,25 @@ export default function App() {
   const tier = stop < 2 ? 0 : stop < 4 ? 1 : 2;
   const ticket = 12 + tier * 8 + (perkMods.ticketBonus || 0);
 
-  const projAttend = (c, promo, song) => {
+  const projAttend = (c, promo, song, priorPlays = 0) => {
     const promoMult = promo === 0 ? 1 : promo === 150 ? 1.4 : 1.8;
     const arch = ARCH[c.arch];
     // perks: boost the "loves" bonus and soften the "hates" penalty
     const love = 1.3 + (perkMods.loveBonus || 0);
     const hate = 1 - (1 - 0.75) * (1 - (perkMods.hatePenaltyReduction || 0));
-    const match = song.tag === arch.loves ? love : song.tag === arch.hates ? hate : 1;
+    const match = song.universal ? love : song.tag === arch.loves ? love : song.tag === arch.hates ? hate : 1;
     const fanPull = (1 + fans / 500) * (perkMods.fanPullMult || 1);
-    return Math.min(c.draw * 1.7, Math.round(c.draw * promoMult * match * Math.min(2.4, fanPull)));
+    // Word gets around: a set they've already heard about pulls a little less.
+    // Milder than the fan-conversion hit — the door still fills, it just cools.
+    const stale = 1 - Math.min(0.30, priorPlays * 0.12);
+    return Math.min(c.draw * 1.7, Math.round(c.draw * promoMult * match * Math.min(2.4, fanPull) * stale));
   };
 
   const pickCity = (c) => {
     setCity(c);
     const arch = ARCH[c.arch];
-    const aff = (s) => (s.tag === arch.loves ? 0 : s.tag === arch.hates ? 2 : 1);
-    const best = [...SONGS].sort((a, b) => aff(a) - aff(b) || a.diff - b.diff)[0];
+    const aff = (s) => (s.universal ? 0 : s.tag === arch.loves ? 0 : s.tag === arch.hates ? 2 : 1);
+    const best = [...availableSongs(career)].sort((a, b) => aff(a) - aff(b) || a.diff - b.diff)[0];
     setPlan({ deal: "door", promo: 0, song: best, travel: "rest" });
     setPhase("plan");
   };
@@ -2077,7 +2237,10 @@ export default function App() {
 
   useEffect(() => {
     if (phase !== "result" || !result || result.settled) return;
-    const attend = projAttend(city, plan.promo, plan.song);
+    const priorPlays = setlistPlays[plan.song.id] || 0;   // this tour, before tonight
+    const amb = ambitionOf(plan.song, result.grade);   // only pays on B+
+    const fresh = freshnessOf(priorPlays);
+    const attend = projAttend(city, plan.promo, plan.song, priorPlays);
     const shownAttend = Math.round(attend * (0.75 + PERF[result.grade] * 0.25));
     const highGrade = result.grade === "S" || result.grade === "A";
     const lines = []; // itemized contributions to the payout
@@ -2086,15 +2249,23 @@ export default function App() {
     if (plan.deal === "guarantee") {
       const base = city.draw * 3 + tier * 200;
       lines.push({ label: "Guaranteed fee", amount: Math.round(base) });
+      let out = base;
+      if (amb !== 1) { lines.push({ label: `Ambition: ${"◆".repeat(plan.song.diff)} chart (×${amb})`, amount: Math.round(base * (amb - 1)) }); out *= amb; }
       const gMult = perkMods.guaranteeMult || 1;
-      if (gMult !== 1) lines.push({ label: "Perk: bigger guarantee", amount: Math.round(base * (gMult - 1)) });
-      revenue = Math.round(base * gMult);
+      if (gMult !== 1) lines.push({ label: "Perk: bigger guarantee", amount: Math.round(out * (gMult - 1)) });
+      revenue = Math.round(out * gMult);
     } else {
       const gate = shownAttend * ticket * 0.6;      // door take before performance
       const perf = PERF[result.grade];
       let withPerf = gate * perf;
       lines.push({ label: `Door: ${shownAttend} in @ ${fmt$(ticket)}`, amount: Math.round(gate) });
       lines.push({ label: `Set grade ${result.grade} (×${perf})`, amount: Math.round(withPerf - gate) });
+      // Ambition: a harder chart is worth more when you land it.
+      if (amb !== 1) {
+        const after = withPerf * amb;
+        lines.push({ label: `Ambition: ${"◆".repeat(plan.song.diff)} chart (×${amb})`, amount: Math.round(after - withPerf) });
+        withPerf = after;
+      }
       // If the room emptied out, you don't get paid like they stayed. No merch,
       // no bar cut, and a promoter who saw it happen.
       if (result.walked) {
@@ -2107,15 +2278,18 @@ export default function App() {
       revenue = Math.round(withPerf * dMult);
     }
 
-    // fans breakdown
+    // fans breakdown — ambition lifts it, staleness kills it (they've heard it)
     const fanBase = Math.round(shownAttend * CONV[result.grade]);
     const fanMult = (perkMods.fanConvMult || 1) * (highGrade ? (perkMods.highGradeFanBonus || 1) : 1);
-    const newFans = Math.round(fanBase * fanMult) + (perkMods.flatFansPerGig || 0);
+    const newFans = Math.round(fanBase * fanMult * amb * fresh) + (perkMods.flatFansPerGig || 0);
 
     setCash((v) => v + revenue);
     setFans((v) => v + newFans);
+    // The band is sick of it: repeating a song this tour costs a little morale.
+    const boredom = priorPlays >= 2 ? -4 : priorPlays === 1 ? -2 : 0;
+    setSetlistPlays((p) => ({ ...p, [plan.song.id]: priorPlays + 1 }));
     const bombMoraleHit = perkMods.damageControl ? -6 : -12;
-    setMorale((m) => applyMoraleFloor(Math.min(100, m + (highGrade ? 8 : result.grade === "F" ? bombMoraleHit : 0))));
+    setMorale((m) => applyMoraleFloor(Math.min(100, m + boredom + (highGrade ? 8 : result.grade === "F" ? bombMoraleHit : 0))));
     const repEv = { walked: !!result.walked, attend: shownAttend, engagement: result.engagement ?? 1 };
     setCred((c) => updateRep(c, infamy, result.grade, perkMods, repEv).cred);
     setInfamy((inf) => updateRep(cred, inf, result.grade, perkMods, repEv).infamy);
@@ -2125,6 +2299,20 @@ export default function App() {
       deltaMeanMs: result.deltaMeanMs, deltaStdMs: result.deltaStdMs,
     }]);
     setResult((r) => ({ ...r, settled: true, revenue, newFans, shownAttend, breakdown: lines }));
+    // Persist to the career. This is what the lore and recurring beats read from.
+    setCareer((c) => {
+      const bomb = result.grade === "C" || result.grade === "F";
+      const next = {
+        ...c,
+        gigs: c.gigs + 1,
+        bombs: c.bombs + (bomb ? 1 : 0),
+        bangers: c.bangers + (highGrade ? 1 : 0),
+        cities: { ...c.cities, [city.name]: (c.cities[city.name] || 0) + 1 },
+        songs: { ...c.songs, [plan.song.id]: (c.songs[plan.song.id] || 0) + 1 },
+      };
+      saveCareer(next);
+      return next;
+    });
   }, [phase]); // eslint-disable-line
 
   // after viewing results: a B/A/S gig with perks still in the pool offers a perk
@@ -2157,6 +2345,12 @@ export default function App() {
   // player picks a road: roll that route's event (context-aware), then drive it
   const chooseRoute = (route) => {
     setChosenRoute(route);
+    // The van gives things up on the road. If a Meridian fragment is eligible,
+    // it takes precedence over an ordinary event — these are rare and gated, so
+    // they should never be crowded out by a flat tire.
+    const frag = nextLore(career);
+    if (frag) { setLoreFind(frag); setTravelEvent(null); setPhase("travel"); return; }
+    setLoreFind(null);
     const ctx = { lastGrade: result?.grade, cred, infamy, cash, morale, repBand: rep.band };
     setTravelEvent(rollRouteEvent(route, ctx));  // may be null (uneventful drive)
     setPhase("travel");
@@ -2165,6 +2359,17 @@ export default function App() {
   // travel finished: apply the route's guaranteed effect AND the road event, plus
   // reputation upkeep (Publicist converts infamy to fans; infamy decays each drive).
   const finishTravel = (route, ev) => {
+    // A Meridian fragment: no resource effects, it's story. Bank it permanently.
+    if (loreFind) {
+      setCareer((c) => {
+        if (c.lore.includes(loreFind.id)) return c;
+        const next = { ...c, lore: [...c.lore, loreFind.id] };
+        saveCareer(next);
+        return next;
+      });
+      setLoreFind(null); setChosenRoute(null); setPhase("map");
+      return;
+    }
     let dCash = 0, dFans = 0, dMorale = 0;
     const gr = route?.guaranteed || {};
     dCash += gr.cash || 0; dFans += gr.fans || 0; dMorale += gr.morale || 0;
@@ -2206,6 +2411,21 @@ export default function App() {
     tourScored.current = true;
     if (history.length === 0) return;          // nothing played, nothing to rank
     const score = scoreRun({ cash, fans, history });
+    // Bank the tour. `reps` and `notorious` are what gate the rarer lore.
+    setCareer((c) => {
+      const next = {
+        ...c,
+        tours: c.tours + 1,
+        bankruptcies: c.bankruptcies + (cash < 0 ? 1 : 0),
+        reps: [...c.reps, rep.label].slice(-40),
+        notorious: c.notorious + (rep.band === "infamous" ? 1 : 0),
+        legendary: c.legendary + (rep.id === "legendary" || rep.id === "acclaimed" ? 1 : 0),
+        bestScore: Math.max(c.bestScore || 0, score),
+        lastTour: { city: city?.name || "the road", cash: Math.round(cash), fans, rep: rep.label, ending: cash < 0 ? "bankrupt" : fans >= 1200 ? "signed" : "rolled on" },
+      };
+      saveCareer(next);
+      return next;
+    });
     const rank = rankFor(boards[diffKey] || [], score);
     if (rank >= 0) { setPendingScore({ score, rank }); setPhase("highscore"); }
   }, [phase]); // eslint-disable-line
@@ -2225,7 +2445,7 @@ export default function App() {
     setStop(0); setCash(600); setFans(120); setMorale(80);
     setHistory([]); setResult(null); setFeedback({ rating: 0, notes: "" });
     setOwnedPerks([]); setPerkOffer([]); setEventsSeen([]); setTravelEvent(null);
-    setRouteOptions([]); setChosenRoute(null);
+    setRouteOptions([]); setChosenRoute(null); setSetlistPlays({});
     setCred(0); setInfamy(0);            // reputation is per-tour; a new band starts unknown
     setPendingScore(null); setLbHighlight(null);
     tourScored.current = false;
@@ -2314,6 +2534,14 @@ export default function App() {
           </div>
 
           <button className="btn big" onClick={() => setPhase("map")}>Load the van →</button>
+          {career.lastTour && (
+            <p className="hint welcome-back">
+              Last tour: <b>{career.lastTour.rep}</b> — {career.lastTour.ending} in {career.lastTour.city} with {fmt$(career.lastTour.cash)}.
+            </p>
+          )}
+          <button className="relink" onClick={() => setPhase("glovebox")}>
+            Check the glovebox ▸{career.lore.length > 0 ? ` (${career.lore.length}/${LORE.length})` : ""}
+          </button>
           <button className="relink" onClick={() => { setLbTab(diffKey); setPhase("boards"); }}>View high scores ▸</button>
           <button className="relink" onClick={() => setPhase("calibrate")}>
             {calOffsetMs === 0 ? "Calibrate audio timing ▸" : `Recalibrate audio (currently ${calOffsetMs}ms) ▸`}
@@ -2363,6 +2591,8 @@ export default function App() {
           toLabel={`Stop ${Math.min(stop + 1, TOTAL_STOPS)}`}
           route={chosenRoute}
           event={travelEvent}
+          lore={loreFind}
+          careerRepBand={career.notorious > career.legendary ? "infamous" : career.legendary > 0 ? "good" : "neutral"}
           onDone={finishTravel}
         />
       )}
@@ -2424,14 +2654,15 @@ export default function App() {
       )}
 
       {phase === "plan" && city && (() => {
-        const attend = projAttend(city, plan.promo, plan.song);
+        const attend = projAttend(city, plan.promo, plan.song, setlistPlays[plan.song.id] || 0);
         const guarantee = Math.round((city.draw * 3 + tier * 200) * (perkMods.guaranteeMult || 1));
         const doorEst = Math.round(attend * ticket * 0.6 * (perkMods.doorMult || 1));
         const costs = gigCosts();
         const arch = ARCH[city.arch];
         // surface loved-genre songs first, hated last, so the long list stays navigable
-        const affinity = (s) => (s.tag === arch.loves ? 0 : s.tag === arch.hates ? 2 : 1);
-        const sortedSongs = [...SONGS].sort((a, b) => affinity(a) - affinity(b) || a.diff - b.diff);
+        // the secret song is loved everywhere — that's the entire point of it
+        const affinity = (s) => (s.universal ? 0 : s.tag === arch.loves ? 0 : s.tag === arch.hates ? 2 : 1);
+        const sortedSongs = [...availableSongs(career)].sort((a, b) => affinity(a) - affinity(b) || a.diff - b.diff);
         return (
           <div className="panel">
             <StatBar />
@@ -2448,24 +2679,32 @@ export default function App() {
             )}
 
             <div className="section">
-              <div className="sec-label">Setlist — one song tonight ({SONGS.length} in your catalog)</div>
+              <div className="sec-label">Setlist — one song tonight ({availableSongs(career).length} in your catalog)</div>
               {isNarrow ? (
                 <SongCarousel
                   songs={sortedSongs}
                   selectedId={plan.song.id}
                   onSelect={(s) => setPlan({ ...plan, song: s })}
                   arch={arch}
+                  plays={setlistPlays}
                 />
               ) : (
                 <div className="chips">
                   {sortedSongs.map((s) => {
-                    const m = s.tag === arch.loves ? "♥" : s.tag === arch.hates ? "✕" : "";
+                    const m = s.universal ? "♥" : s.tag === arch.loves ? "♥" : s.tag === arch.hates ? "✕" : "";
+                    const amb = ambitionOf(s);
+                    const plays = setlistPlays[s.id] || 0;
+                    const stale = staleLabel(plays);
                     return (
                       <button key={s.id}
-                        className={"chip" + (plan.song.id === s.id ? " sel" : "")}
+                        className={"chip" + (plan.song.id === s.id ? " sel" : "") + (stale ? " stale" : "")}
                         onClick={() => setPlan({ ...plan, song: s })}>
                         <b>{s.name}</b> {m && <span className={m === "♥" ? "love" : "hate"}>{m}</span>}
                         <span className="chip-sub">{s.tag} · {s.bpm} bpm · {"◆".repeat(s.diff)}{"◇".repeat(4 - s.diff)}</span>
+                        <span className="chip-econ">
+                          <span className={amb >= 1.15 ? "amb hi" : amb < 1 ? "amb lo" : "amb"} title="Only pays if you grade B or better">×{amb} on B+</span>
+                          {stale && <span className="stale-tag">{stale}</span>}
+                        </span>
                       </button>
                     );
                   })}
@@ -2640,6 +2879,49 @@ export default function App() {
           <button className="relink" onClick={() => choosePerk(null)}>Skip — take none this time</button>
         </div>
       )}
+
+      {phase === "glovebox" && (() => {
+        const found = career.lore.length, total = LORE.length;
+        const unlocked = SECRET_UNLOCKED(career);
+        return (
+          <div className="panel center">
+            <div className="kicker">THE GLOVEBOX</div>
+            <h2 className="h2" style={{ marginTop: 2 }}>What the van's given up</h2>
+            <p className="hint" style={{ marginBottom: 4 }}>
+              {found}/{total} found · {career.tours} tour{career.tours === 1 ? "" : "s"} · {career.gigs} gigs
+            </p>
+            {found === 0 && <p className="hint lore-empty">You haven't found anything yet. Keep touring — it turns up.</p>}
+            <div className="lore-list">
+              {LORE.map((l) => {
+                const has = career.lore.includes(l.id);
+                return (
+                  <div className={"lore-row" + (has ? " has" : "")} key={l.id}>
+                    <span className="lore-dot">{has ? "✦" : "·"}</span>
+                    <div className="lore-row-body">
+                      <div className="lore-row-title">{has ? l.title : "— — —"}</div>
+                      <div className="lore-row-sub">{has ? l.find : l.hint}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className={"secret-slot" + (unlocked ? " on" : "")}>
+              {unlocked ? (
+                <>
+                  <div className="secret-title">♪ The Fourth Song</div>
+                  <div className="secret-sub">Twelve minutes. It's in your setlist now — and no room on earth dislikes it.</div>
+                </>
+              ) : (
+                <>
+                  <div className="secret-title locked">♪ ? ? ? ?</div>
+                  <div className="secret-sub">Meridian stopped playing something. Find the whole story and it's yours.</div>
+                </>
+              )}
+            </div>
+            <button className="btn big" onClick={() => setPhase("title")}>← Back</button>
+          </div>
+        );
+      })()}
 
       {phase === "boards" && (
         <div className="panel center">
@@ -2921,6 +3203,15 @@ const CSS = `
 .slide-blurb { font-size: 13px; color: #cfc6b8; min-height: 34px; }
 .slide-pick { margin-top: 4px; font-size: 13px; font-weight: 700; color: #9a9086; }
 .slide-pick.on { color: #FF3D7F; }
+.chip-econ { display: flex; gap: 6px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+.amb { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,0.07); color: #9a9086; }
+.amb.hi { background: rgba(255,176,58,0.16); color: #FFB03A; }
+.amb.lo { background: rgba(255,255,255,0.05); color: #7d7568; }
+.stale-tag { font-size: 10.5px; padding: 1px 6px; border-radius: 6px; background: rgba(255,120,120,0.14); color: #ff9a9a; }
+.chip.stale { opacity: 0.78; }
+.slide-econ { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 2px 0; }
+.slide-econ .amb { font-size: 12px; padding: 2px 9px; }
+.slide-econ .stale-tag { font-size: 11px; padding: 2px 9px; }
 
 /* ---- travel / road-event screen ---- */
 .travel { gap: 4px; }
@@ -2990,6 +3281,30 @@ const CSS = `
 .rep-teach.cold { color: #9a9086; background: rgba(255,255,255,0.05); }
 .rep-teach.hot { color: #FF9ec4; background: rgba(255,61,127,0.10); }
 .rep-teach b { color: #F4EDE0; }
+
+/* ---- Meridian lore ---- */
+.lore-card { gap: 4px; }
+.lore-kind { font-family: 'Bungee', sans-serif; font-size: 11px; letter-spacing: 0.14em; color: #FFB03A; padding: 3px 12px; border-radius: 20px; background: rgba(255,176,58,0.10); }
+.lore-find { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8d8478; margin-top: 4px; }
+.lore-title { font-family: 'Bungee', sans-serif; font-size: 19px; color: #F4EDE0; margin: 2px 0 6px; }
+.lore-text { font-size: 14px; line-height: 1.6; color: #cfc6b8; max-width: 430px; margin: 0 0 9px; white-space: pre-line; text-align: left; }
+.lore-empty { text-align: center; padding: 10px 0; }
+.lore-list { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 5px; margin: 6px 0 12px; }
+.lore-row { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border-radius: 10px; background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.07); text-align: left; }
+.lore-row.has { background: rgba(255,176,58,0.07); border-color: rgba(255,176,58,0.28); }
+.lore-dot { color: #4a4450; font-size: 14px; line-height: 1.3; }
+.lore-row.has .lore-dot { color: #FFB03A; }
+.lore-row-title { font-family: 'Bungee', sans-serif; font-size: 13px; color: #6a6270; letter-spacing: 0.1em; }
+.lore-row.has .lore-row-title { color: #F4EDE0; letter-spacing: 0; }
+.lore-row-sub { font-size: 12px; color: #8d8478; margin-top: 2px; font-style: italic; }
+.lore-row.has .lore-row-sub { font-style: normal; color: #a89e92; }
+.secret-slot { width: 100%; max-width: 460px; padding: 12px 14px; border-radius: 12px; text-align: center; background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.16); }
+.secret-slot.on { background: rgba(87,224,232,0.08); border: 1px solid rgba(87,224,232,0.45); border-style: solid; }
+.secret-title { font-family: 'Bungee', sans-serif; font-size: 16px; color: #57E0E8; }
+.secret-title.locked { color: #5a5364; letter-spacing: 0.2em; }
+.secret-sub { font-size: 12px; color: #8d8478; margin-top: 3px; line-height: 1.4; }
+.welcome-back { text-align: center; margin: 2px 0 0; }
+.welcome-back b { color: #cfc6b8; }
 .end-rep { font-size: 14px; line-height: 1.45; text-align: center; margin: 2px 0 6px; max-width: 420px; }
 .end-rep.b-infamous { color: #FF9ec4; }
 .end-rep.b-good { color: #8FEAF0; }

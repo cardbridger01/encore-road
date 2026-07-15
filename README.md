@@ -63,6 +63,38 @@ from another project on the same Render account: there's nothing here that
   generated from `bpm`/`feel`, so nothing else changes. Songs can be swapped one
   at a time, and a missing or broken file automatically falls back to the synth
   rather than leaving a silent gig. See `public/audio/README.md`.
+- **Song choice is an actual decision (ambition & freshness):** previously a
+  song's `diff` only added notes — it had no upside at all, so the optimal pick
+  was always "the lowest-diff song this city loves", every night, forever. Payout
+  depended only on `tag`, which meant two anthems paid identically and the harder
+  one was strictly worse. Two levers fix it. **Ambition:** harder charts pay more
+  (◆ ×0.85 → ◆◆◆◆ ×1.32) on payout and fan conversion — **but only if you grade
+  B or better**, so over-reaching and botching it never out-earns playing
+  something simple well. **Freshness:** a scene talks. Replaying a song this tour
+  decays new-fan conversion hard (1.00 → 0.72 → 0.52), cools the door a little,
+  and bores the band (morale). Measured: the best pick is now genuinely
+  skill-dependent — an expert wants the ◆◆◆◆ chart, a mid player wants the ◆ —
+  and no single song can carry a whole tour. Both numbers are shown on every song
+  card, since a hidden multiplier isn't a decision.
+- **Career memory & the Meridian (replayability):** everything else resets when a
+  tour ends — this doesn't. A persistent career (`encoreRoadCareer`) remembers
+  tours, gigs, bombs, bangers, cities, songs, reputations reached, and how your
+  last tour ended (the title screen greets you with it). That memory gates
+  **the Meridian**: the band that owned your van before you. Seven fragments —
+  a cassette under the bench seat, a setlist with the fourth song scratched out,
+  a note in the visor, a photograph, a laminated clipping, a reel labelled IV,
+  and finally a drummer in Norman, Oklahoma — surface on the road, one at a time,
+  each gated behind career conditions. **It cannot be binged:** one tour yields
+  1 of 7. The final reveal *reframes by who you became* — the same question gets a
+  different answer depending on whether your career leaned cred or infamy. Track
+  progress in **the Glovebox** (title screen), which shows found fragments and
+  locked slots with hints, Hades-codex style.
+  Completing the story unlocks **The Fourth Song** — a hidden 21st track that no
+  crowd anywhere dislikes, because that's the whole point of it.
+  *By design:* a band that's always great gets stuck at 4/7 — "The Clipping"
+  requires having ended a tour infamous. You cannot learn what happened to
+  Meridian until you've been the disaster they were, which is what makes the
+  second playstyle worth touring.
 - **Infamy has to be earned — but flailing counts (anti-exploit):** the engine
   distinguishes a **bum note** (you swung and missed — the crowd winces but you're
   up there playing, drain -2) from **dead air** (nobody touched anything, drain
