@@ -2502,15 +2502,21 @@ export default function App() {
     setPhase("end");
   };
 
+  // A finished tour returns you to the title — the hub. That's where difficulty,
+  // the high scores, your last-tour memory and the glovebox live. Dropping
+  // straight into the next tour skipped all of it: notably, a fragment found on
+  // the last drive of a tour would leave a "new" dot on the glovebox that the
+  // player would never see.
   const restart = () => {
     setStop(0); setCash(600); setFans(120); setMorale(80);
     setHistory([]); setResult(null); setFeedback({ rating: 0, notes: "" });
     setOwnedPerks([]); setPerkOffer([]); setEventsSeen([]); setTravelEvent(null);
     setRouteOptions([]); setChosenRoute(null); setSetlistPlays({});
+    setLoreFind(null);
     setCred(0); setInfamy(0);            // reputation is per-tour; a new band starts unknown
     setPendingScore(null); setLbHighlight(null);
     tourScored.current = false;
-    setPhase("map");
+    setPhase("title");
   };
 
   const exportPlaytestData = () => {

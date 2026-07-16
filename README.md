@@ -89,6 +89,11 @@ from another project on the same Render account: there's nothing here that
   skill-dependent — an expert wants the ◆◆◆◆ chart, a mid player wants the ◆ —
   and no single song can carry a whole tour. Both numbers are shown on every song
   card, since a hidden multiplier isn't a decision.
+- **The title screen is the hub.** Finishing a tour returns you there rather than
+  dropping straight into the next one. That's where difficulty, the high scores,
+  your last-tour memory line and the glovebox live — skipping it removed the whole
+  meta-layer from the loop, and meant a Meridian fragment found on the *last drive
+  of a tour* left a "new" dot on the glovebox that the player would never see.
 - **Career memory & the Meridian (replayability):** everything else resets when a
   tour ends — this doesn't. A persistent career (`encoreRoadCareer`) remembers
   tours, gigs, bombs, bangers, cities, songs, reputations reached, and how your
