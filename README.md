@@ -63,6 +63,19 @@ from another project on the same Render account: there's nothing here that
   generated from `bpm`/`feel`, so nothing else changes. Songs can be swapped one
   at a time, and a missing or broken file automatically falls back to the synth
   rather than leaving a silent gig. See `public/audio/README.md`.
+- **City choice is an actual decision (venue economics):** previously costs were a
+  flat $80 whether you played an 80-cap bar in Wichita or a 400-cap room in LA,
+  while revenue *and* the guarantee both scaled off `draw` — so the bigger draw
+  was strictly better, every time. The underlying flaw was the attendance model:
+  a room filled because it was *big*, not because people came to see *you*. Now
+  **attendance is your pull, capped by the room** (walk-ups + fanbase × promo ×
+  genre match), the room's nut scales with its size (`40 + draw × 0.8`), and a
+  promoter only guarantees what they think you'll actually pull — nobody hands an
+  unknown band a 400-cap guarantee. Measured: at 120 fans **LA is the worst option
+  on the board** ($374 net, 31% full, $360 nut) and Kansas City wins; by 600 fans
+  LA is best ($1,996). Best city by fanbase: 120 → Kansas City, 300 → Chicago,
+  600+ → LA. Each city card shows projected fill, heads-in-room, and the nut, and
+  warns you outright when a room is too big for you.
 - **Song choice is an actual decision (ambition & freshness):** previously a
   song's `diff` only added notes — it had no upside at all, so the optimal pick
   was always "the lowest-diff song this city loves", every night, forever. Payout
@@ -79,22 +92,39 @@ from another project on the same Render account: there's nothing here that
 - **Career memory & the Meridian (replayability):** everything else resets when a
   tour ends — this doesn't. A persistent career (`encoreRoadCareer`) remembers
   tours, gigs, bombs, bangers, cities, songs, reputations reached, and how your
-  last tour ended (the title screen greets you with it). That memory gates
-  **the Meridian**: the band that owned your van before you. Seven fragments —
-  a cassette under the bench seat, a setlist with the fourth song scratched out,
-  a note in the visor, a photograph, a laminated clipping, a reel labelled IV,
-  and finally a drummer in Norman, Oklahoma — surface on the road, one at a time,
-  each gated behind career conditions. **It cannot be binged:** one tour yields
-  1 of 7. The final reveal *reframes by who you became* — the same question gets a
-  different answer depending on whether your career leaned cred or infamy. Track
-  progress in **the Glovebox** (title screen), which shows found fragments and
-  locked slots with hints, Hades-codex style.
+  last tour ended (the title screen greets you with it). That memory gates **the
+  Meridian**: the band that owned your van before you. Seven fragments — a
+  cassette under the bench seat, a setlist with the fourth song scratched out, a
+  note in the visor, a photograph, a laminated clipping, a reel labelled IV, and
+  finally a drummer in Norman, Oklahoma.
+
+  Each fragment needs three things: a career floor (`when`), the right
+  **circumstance** (`spark`), and then **luck** (`chance`). Nothing fires on a
+  schedule. You find the clipping under the spare *because you're changing a
+  tire*; the reel at the bottom of the toolbox *because the van made you open
+  it*; the setlist in the glovebox *because a cop wanted your registration*; the
+  note in the visor *on some dawn you didn't plan for*. The last one you have to
+  go looking for — and rolling through Oklahoma is the short way there.
+
+  Measured over simulated careers: the cassette lands in tour 1 for ~86% (it's the
+  hook — and since the Glovebox is hidden until your first find, making it rare
+  would hide the whole system from the players most likely to bounce). The story
+  as a whole completes around **tour 8**.
+
+  `clipping` is deliberately the hardest gate: it requires having **ended a tour
+  in the infamous band** — not merely a run of bad nights. You cannot learn what
+  happened to Meridian until you've been what they were, and the in-game hint says
+  so outright ("Only a band that's been hated will find this one"). Measured:
+  a player who always plays well finds it **0%** of the time and never finishes the
+  story; a normal player who has rough tours gets there **80%** / completes **68%**;
+  a player who reads the clue and deliberately tanks one tour hits **97%** /
+  completes **81%** around tour 8. The final reveal *reframes by who you became*.
+
   Completing the story unlocks **The Fourth Song** — a hidden 21st track that no
-  crowd anywhere dislikes, because that's the whole point of it.
-  *By design:* a band that's always great gets stuck at 4/7 — "The Clipping"
-  requires having ended a tour infamous. You cannot learn what happened to
-  Meridian until you've been the disaster they were, which is what makes the
-  second playstyle worth touring.
+  crowd anywhere dislikes, because that's the whole point of it. Track progress in
+  **the Glovebox**, which is itself hidden until the van actually gives something
+  up: surfacing it from launch would advertise the whole system and turn the first
+  find into a checkbox instead of a discovery.
 - **Infamy has to be earned — but flailing counts (anti-exploit):** the engine
   distinguishes a **bum note** (you swung and missed — the crowd winces but you're
   up there playing, drain -2) from **dead air** (nobody touched anything, drain

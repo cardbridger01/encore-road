@@ -101,6 +101,22 @@ const ARCH = {
   pitcrew:   { label: "Pit Crew",      loves: "metal",  hates: "ballad", flavor: "Open the pit." },
 };
 
+/* ============================ VENUE ECONOMICS ============================
+   A room does not fill because it is big. It fills because people came to see
+   YOU. Attendance is your pull, capped by the room — so a big room early is a
+   bad bet (you rattle around in it and still pay the big nut), and a small room
+   late is a cap on your night no matter how big you've got.
+
+   Before this, costs were a flat $80 whether you played an 80-cap bar in Wichita
+   or a 400-cap room in LA, while revenue scaled straight off `draw`. Bigger was
+   strictly better, every time, with no tradeoff at all.
+   ==================================================================== */
+const LOCAL_WALKUPS = 30;                       // people who'd come to anything
+const cityCost = (c) => Math.round(40 + c.draw * 0.8);   // the nut: bigger room, bigger bill
+// What a promoter will guarantee: what they think you'll actually pull, not the
+// room's capacity. Nobody hands an unknown band a 400-cap guarantee.
+const guaranteeFor = (c, pull, tier) => Math.round(Math.min(c.draw, pull) * 3 + tier * 120);
+
 const CITY_POOL = [
   { name: "Tulsa",        arch: "punkhouse",  draw: 90 },
   { name: "Wichita",      arch: "divehearts", draw: 80 },
@@ -268,6 +284,7 @@ const blankCareer = () => ({
   notorious: 0,      // tours ended in the infamous band
   legendary: 0,      // tours ended with high cred
   lore: [],          // ids of lore fragments found
+  gloveboxSeen: 0,   // lore count when the glovebox was last opened (for the "new" dot)
   seen: {},          // road event id -> times seen, ACROSS tours
   bestScore: 0,
   lastTour: null,    // { city, cash, fans, rep, ending }
@@ -295,45 +312,72 @@ function saveCareer(c) {
 const LORE = [
   {
     id: "cassette", title: "The Cassette", scene: "motel", find: "Under the bench seat",
-    hint: "Play a few shows. Things surface.",
-    when: (c) => c.gigs >= 2,
+    hint: "Long drives shake things loose.",
+    when: (c) => c.gigs >= 1,
+    // Three hundred miles of someone's heel on it. You find it on a long, quiet haul.
+    spark: (x) => x.route.id !== "interstate" || x.morale < 45,
+    chance: 0.42,
     text: "Something's been digging into someone's heel for three hundred miles. It's a cassette, no case, MERIDIAN — ROUGH written on the label in ballpoint. Side A is four songs. You play it twice before anybody says anything.\n\nThey're good. They're better than good.",
   },
   {
     id: "setlist", title: "The Setlist", scene: "shop", find: "Taped inside the glovebox",
-    hint: "Finish a tour. Come back to the van.",
-    when: (c) => c.tours >= 1,
+    hint: "You'll find it looking for something else.",
+    when: (c) => c.gigs >= 4,
+    // You only open the glovebox when you need the registration — or you're
+    // digging through it for gas money.
+    spark: (x) => x.event?.cat === "law" || x.event?.cat === "money" || x.cash < 320,
+    chance: 0.6,
     text: "Gone amber, curling at the corners, taped inside the glovebox since before you owned this thing. A setlist. Four songs in blue pen.\n\nThe fourth is scratched out so hard the pen went through the paper.",
   },
   {
     id: "visor", title: "The Note in the Visor", scene: "motel", find: "Folded into the sun visor",
-    hint: "You'll find it on a bad night.",
-    when: (c) => c.tours >= 1 && c.bombs >= 3,
+    hint: "Some sunrise you didn't plan for.",
+    when: (c) => c.tours >= 1,
+    // You flip the visor down driving out of a town at dawn, after a rough night.
+    // Morale counts as rough — otherwise a player who never bombs is hard-locked
+    // out of the fragment entirely.
+    spark: (x) => x.lastGrade === "F" || x.lastGrade === "C" || x.morale < 42,
+    chance: 0.55,
     text: "You flip the visor down against a sunrise you didn't plan for, and it falls into your lap. Soft as cloth from being folded and refolded.\n\n\"whatever else happens — don't play the fourth one. —M\"",
   },
   {
     id: "photo", title: "The Photograph", scene: "shop", find: "Behind the rattling panel",
-    hint: "Two tours. The van gives things up slowly.",
+    hint: "That rattle has to be worth something.",
     when: (c) => c.tours >= 2,
+    // Rough road makes the rattle unbearable, or you're already elbow-deep in it.
+    spark: (x) => x.route.icon === "rough" || x.event?.cat === "mech",
+    chance: 0.5,
     text: "That panel's rattled since the day you bought it. You finally pry it off at a rest stop in the dark, and a photograph falls out.\n\nFour people sitting on this bumper, in some parking lot, squinting into the sun. On the back, same blue pen: TULSA — LAST GOOD ONE.",
   },
   {
     id: "clipping", title: "The Clipping", scene: "meme", find: "Laminated, under the spare",
-    hint: "Only a band that's been hated will find this one.",
+    hint: "Only a band that's been hated will find this one — and only with the spare out.",
+    // Deliberately the hardest gate in the story: you must have ENDED a tour in
+    // the infamous band. Not "had some bad nights" — actually been the disaster.
+    // You cannot learn what happened to Meridian until you've been what they were.
     when: (c) => c.tours >= 2 && c.notorious >= 1,
+    // You only lift the spare when you're changing a tire.
+    spark: (x) => !!x.event?.mech,
+    chance: 0.85,
     text: "Under the spare, laminated — somebody wanted this kept. A scrap of newsprint, no date left on it:\n\n\"MERIDIAN EMPTIES CAIN'S BALLROOM. They played one song for forty minutes, said the promoter. People were crying. I have never seen anything like it and I hope I never do again.\"",
   },
   {
     id: "reel", title: "The Fourth Song", scene: "club", find: "At the bottom of the toolbox",
-    hint: "Three tours deep. Keep the van.",
+    hint: "You'd have to need the tools.",
     when: (c) => c.tours >= 3,
+    // Nobody empties the toolbox unless the van makes them.
+    spark: (x) => x.event?.cat === "mech",
+    chance: 0.7,
     text: "At the bottom of the toolbox, under forty years of loose sockets: a reel of quarter-inch tape. Labeled only IV.\n\nA shop in Amarillo has a machine. It's twelve minutes long. Nobody talks for the rest of the drive.",
   },
   {
     id: "truth", title: "Norman, Oklahoma", scene: "club", find: "You go looking",
-    hint: "When you've found the rest, go find her.",
+    hint: "She's in Oklahoma. So was the last good one.",
     when: (c) => c.tours >= 4 && c.lore.length >= 6,
-    // the reveal reframes by how YOU toured — the same question, a different answer
+    // She teaches in Norman. Roll through Oklahoma and you could just go ask —
+    // otherwise it takes you a couple more tours to work up to it.
+    spark: (x) => x.city?.name === "Tulsa" || x.career.tours >= 5,
+    chance: 0.85,
     variants: {
       infamous: "You track down the drummer. She teaches now, in Norman, and she's polite about it until you say the word Cain's.\n\n\"That wasn't a breakdown,\" she says. \"That was the fourth song. All forty minutes of it, exactly as written, exactly once.\" They never got booked in this state again. She's quiet a while.\n\n\"Best night of my life,\" she says. \"Every one of us would tell you the same.\"",
       good: "You track down the drummer. She teaches now, in Norman, and she laughs when you say you've got the van.\n\n\"We got good,\" she says. \"Then we got signed. Then we got told which four songs to play, and the fourth one wasn't on the list. Two hundred nights a year, six years.\" She stirs her coffee. \"Never played it again.\"\n\n\"We were huge,\" she says. \"You've never heard of us.\"",
@@ -342,9 +386,18 @@ const LORE = [
   },
 ];
 const loreById = (id) => LORE.find((l) => l.id === id);
-// Which fragment is eligible right now and hasn't been found?
-function nextLore(career) {
-  return LORE.find((l) => !career.lore.includes(l.id) && l.when(career)) || null;
+// A fragment needs three things: the career floor (`when`), the right moment
+// (`spark`), and then luck (`chance`). No thresholds firing on a schedule — the
+// van gives things up when YOU are in the right state, and even then only
+// sometimes. Two players' stories genuinely diverge.
+function rollLore(career, x) {
+  for (const l of LORE) {
+    if (career.lore.includes(l.id)) continue;
+    if (!l.when(career)) continue;
+    if (!l.spark(x)) continue;
+    if (Math.random() < l.chance) return l;
+  }
+  return null;
 }
 // Reading the reveal is gated on the whole story, and the story unlocks the song.
 const SECRET_UNLOCKED = (career) => career.lore.length >= LORE.length;
@@ -2192,19 +2245,21 @@ export default function App() {
   const tier = stop < 2 ? 0 : stop < 4 ? 1 : 2;
   const ticket = 12 + tier * 8 + (perkMods.ticketBonus || 0);
 
-  const projAttend = (c, promo, song, priorPlays = 0) => {
+  // Your pull, before the room caps it. This is what you'd draw anywhere.
+  const projPull = (c, promo, song, priorPlays = 0) => {
     const promoMult = promo === 0 ? 1 : promo === 150 ? 1.4 : 1.8;
     const arch = ARCH[c.arch];
-    // perks: boost the "loves" bonus and soften the "hates" penalty
     const love = 1.3 + (perkMods.loveBonus || 0);
     const hate = 1 - (1 - 0.75) * (1 - (perkMods.hatePenaltyReduction || 0));
     const match = song.universal ? love : song.tag === arch.loves ? love : song.tag === arch.hates ? hate : 1;
-    const fanPull = (1 + fans / 500) * (perkMods.fanPullMult || 1);
     // Word gets around: a set they've already heard about pulls a little less.
-    // Milder than the fan-conversion hit — the door still fills, it just cools.
     const stale = 1 - Math.min(0.30, priorPlays * 0.12);
-    return Math.min(c.draw * 1.7, Math.round(c.draw * promoMult * match * Math.min(2.4, fanPull) * stale));
+    const draw = fans * 0.55 * (perkMods.fanPullMult || 1);
+    return Math.round((LOCAL_WALKUPS + draw) * promoMult * match * stale);
   };
+  // What actually shows up: your pull, capped by the room.
+  const projAttend = (c, promo, song, priorPlays = 0) =>
+    Math.min(c.draw, projPull(c, promo, song, priorPlays));
 
   const pickCity = (c) => {
     setCity(c);
@@ -2215,9 +2270,11 @@ export default function App() {
     setPhase("plan");
   };
 
+  // The nut: promo + the room's bill + lodging. The room's bill scales with the
+  // room, which is the counterweight that makes a big city a real gamble.
   const gigCosts = () =>
     Math.round(plan.promo * (perkMods.promoCostMult || 1))
-    + Math.max(0, 80 - (perkMods.costReduction || 0))
+    + Math.max(0, (city ? cityCost(city) : 80) - (perkMods.costReduction || 0))
     + (plan.travel === "rest" ? 120 : 0);
 
   const applyMoraleFloor = (m) => Math.max(perkMods.moraleFloor || 0, m);
@@ -2247,7 +2304,7 @@ export default function App() {
 
     let revenue;
     if (plan.deal === "guarantee") {
-      const base = city.draw * 3 + tier * 200;
+      const base = guaranteeFor(city, projPull(city, plan.promo, plan.song, priorPlays), tier);
       lines.push({ label: "Guaranteed fee", amount: Math.round(base) });
       let out = base;
       if (amb !== 1) { lines.push({ label: `Ambition: ${"◆".repeat(plan.song.diff)} chart (×${amb})`, amount: Math.round(base * (amb - 1)) }); out *= amb; }
@@ -2342,17 +2399,21 @@ export default function App() {
     setPhase("route");
   };
 
-  // player picks a road: roll that route's event (context-aware), then drive it
+  // player picks a road: roll that route's event, then see whether the van gives
+  // something up. The event is rolled FIRST because it's often the circumstance
+  // that surfaces a fragment — you find the clipping under the spare because
+  // you're changing a tire.
   const chooseRoute = (route) => {
     setChosenRoute(route);
-    // The van gives things up on the road. If a Meridian fragment is eligible,
-    // it takes precedence over an ordinary event — these are rare and gated, so
-    // they should never be crowded out by a flat tire.
-    const frag = nextLore(career);
+    const ctx = { lastGrade: result?.grade, cred, infamy, cash, morale, repBand: rep.band };
+    const ev = rollRouteEvent(route, ctx);
+    const frag = rollLore(career, {
+      route, event: ev, career, cash, morale, fans,
+      lastGrade: result?.grade, city, rep,
+    });
     if (frag) { setLoreFind(frag); setTravelEvent(null); setPhase("travel"); return; }
     setLoreFind(null);
-    const ctx = { lastGrade: result?.grade, cred, infamy, cash, morale, repBand: rep.band };
-    setTravelEvent(rollRouteEvent(route, ctx));  // may be null (uneventful drive)
+    setTravelEvent(ev);   // may be null (uneventful drive)
     setPhase("travel");
   };
 
@@ -2539,9 +2600,18 @@ export default function App() {
               Last tour: <b>{career.lastTour.rep}</b> — {career.lastTour.ending} in {career.lastTour.city} with {fmt$(career.lastTour.cash)}.
             </p>
           )}
-          <button className="relink" onClick={() => setPhase("glovebox")}>
-            Check the glovebox ▸{career.lore.length > 0 ? ` (${career.lore.length}/${LORE.length})` : ""}
-          </button>
+          {/* The glovebox does not exist until the van gives something up. Showing
+              it from launch would advertise the whole collectible system and turn
+              the first find from a discovery into a checkbox. */}
+          {career.lore.length > 0 && (
+            <button className="relink glovebox-link" onClick={() => {
+              setCareer((c) => { const n = { ...c, gloveboxSeen: c.lore.length }; saveCareer(n); return n; });
+              setPhase("glovebox");
+            }}>
+              Check the glovebox ▸
+              {career.lore.length > (career.gloveboxSeen || 0) && <span className="new-dot" aria-label="new" />}
+            </button>
+          )}
           <button className="relink" onClick={() => { setLbTab(diffKey); setPhase("boards"); }}>View high scores ▸</button>
           <button className="relink" onClick={() => setPhase("calibrate")}>
             {calOffsetMs === 0 ? "Calibrate audio timing ▸" : `Recalibrate audio (currently ${calOffsetMs}ms) ▸`}
@@ -2636,13 +2706,28 @@ export default function App() {
           <div className="cards">
             {cityOptions.map((c) => {
               const a = ARCH[c.arch];
+              // Rough preview: your pull with a neutral song, no promo. Shows
+              // whether you can actually fill this room tonight.
+              const est = Math.round((LOCAL_WALKUPS + fans * 0.55 * (perkMods.fanPullMult || 1)));
+              const heads = Math.min(c.draw, est);
+              const fill = c.draw ? heads / c.draw : 0;
+              const nut = Math.max(0, cityCost(c) - (perkMods.costReduction || 0));
+              const fillClass = fill >= 0.9 ? "full" : fill >= 0.55 ? "ok" : "thin";
               return (
                 <button key={c.name} className="card city" onClick={() => pickCity(c)}>
                   <div className="card-title">{c.name}</div>
                   <div className="card-tag">{a.label}</div>
                   <div className="card-line">{a.flavor}</div>
+                  <div className="venue-row">
+                    <div className="venue-bar"><div className={"venue-fill " + fillClass} style={{ width: Math.round(fill * 100) + "%" }} /></div>
+                    <span className={"venue-pct " + fillClass}>{Math.round(fill * 100)}%</span>
+                  </div>
+                  <div className="venue-line">
+                    <span>~{heads} in a {c.draw}-cap room</span>
+                    <span className="venue-nut">nut {fmt$(nut)}</span>
+                  </div>
+                  {fill < 0.5 && <div className="venue-warn">Too big for you right now — you'd pay the nut to play to an empty room.</div>}
                   <div className="card-meta">
-                    <span>draw ~{c.draw}</span>
                     <span className="love">♥ {a.loves}</span>
                     <span className="hate">✕ {a.hates}</span>
                   </div>
@@ -2655,7 +2740,7 @@ export default function App() {
 
       {phase === "plan" && city && (() => {
         const attend = projAttend(city, plan.promo, plan.song, setlistPlays[plan.song.id] || 0);
-        const guarantee = Math.round((city.draw * 3 + tier * 200) * (perkMods.guaranteeMult || 1));
+        const guarantee = Math.round(guaranteeFor(city, projPull(city, plan.promo, plan.song, setlistPlays[plan.song.id] || 0), tier) * (perkMods.guaranteeMult || 1));
         const doorEst = Math.round(attend * ticket * 0.6 * (perkMods.doorMult || 1));
         const costs = gigCosts();
         const arch = ARCH[city.arch];
@@ -2890,7 +2975,7 @@ export default function App() {
             <p className="hint" style={{ marginBottom: 4 }}>
               {found}/{total} found · {career.tours} tour{career.tours === 1 ? "" : "s"} · {career.gigs} gigs
             </p>
-            {found === 0 && <p className="hint lore-empty">You haven't found anything yet. Keep touring — it turns up.</p>}
+            {found === 0 && <p className="hint lore-empty">Empty. Whatever was in here, you haven't found it yet.</p>}
             <div className="lore-list">
               {LORE.map((l) => {
                 const has = career.lore.includes(l.id);
@@ -3204,6 +3289,17 @@ const CSS = `
 .slide-pick { margin-top: 4px; font-size: 13px; font-weight: 700; color: #9a9086; }
 .slide-pick.on { color: #FF3D7F; }
 .chip-econ { display: flex; gap: 6px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+.venue-row { display: flex; align-items: center; gap: 7px; margin: 7px 0 3px; }
+.venue-bar { flex: 1; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; }
+.venue-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+.venue-fill.full { background: #8CFF9E; }
+.venue-fill.ok   { background: #FFB03A; }
+.venue-fill.thin { background: #ff6b6b; }
+.venue-pct { font-family: 'Bungee', sans-serif; font-size: 11px; min-width: 34px; text-align: right; }
+.venue-pct.full { color: #8CFF9E; } .venue-pct.ok { color: #FFB03A; } .venue-pct.thin { color: #ff8a8a; }
+.venue-line { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: #9a9086; }
+.venue-nut { color: #cfc6b8; font-variant-numeric: tabular-nums; }
+.venue-warn { font-size: 11px; color: #ff9a9a; line-height: 1.35; margin-top: 5px; }
 .amb { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,0.07); color: #9a9086; }
 .amb.hi { background: rgba(255,176,58,0.16); color: #FFB03A; }
 .amb.lo { background: rgba(255,255,255,0.05); color: #7d7568; }
@@ -3304,6 +3400,9 @@ const CSS = `
 .secret-title.locked { color: #5a5364; letter-spacing: 0.2em; }
 .secret-sub { font-size: 12px; color: #8d8478; margin-top: 3px; line-height: 1.4; }
 .welcome-back { text-align: center; margin: 2px 0 0; }
+.glovebox-link { position: relative; }
+.new-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #FFB03A; margin-left: 6px; vertical-align: middle; animation: newPulse 1.6s ease-in-out infinite; }
+@keyframes newPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.7); } }
 .welcome-back b { color: #cfc6b8; }
 .end-rep { font-size: 14px; line-height: 1.45; text-align: center; margin: 2px 0 6px; max-width: 420px; }
 .end-rep.b-infamous { color: #FF9ec4; }
